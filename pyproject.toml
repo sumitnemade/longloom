@@ -71,6 +71,7 @@ dev = [
 Homepage = "https://github.com/sumitnemade/longloom"
 Documentation = "https://github.com/sumitnemade/longloom#readme"
 Changelog = "https://github.com/sumitnemade/longloom/blob/main/CHANGELOG.md"
+Issues = "https://github.com/sumitnemade/longloom/issues"
 
 [tool.setuptools.packages.find]
 include = ["longloom*"]
