@@ -44,50 +44,66 @@ def split_text(
 ) -> List[str]:
     """Split *text* into pieces of at most *max_tokens* (counter-defined tokens).
 
-    Strategy:
-      1. Fast path — if the counter exposes ``split(text, max_tokens)`` it is
-         used directly (tiktoken counters do, via exact encode/decode).
-      2. Fallback — analytic estimate of the cut point, then a bounded
-         shrink/extend correction loop, snapping to whitespace where possible.
+    Strategy — LINE-AWARE, so facts on a single line are never cut in half:
+
+      1. Greedily pack whole lines into chunks while the chunk fits
+         (``counter()`` measures each line; works with any counter).
+      2. A single line longer than *max_tokens* is hard-split by token count
+         (binary search with the counter) — unavoidable last resort.
 
     Returns a list of non-empty strings whose concatenation reconstructs the
-    original text (whitespace-stripped at chunk seams).
+    original text.
     """
     if max_tokens < 1:
         raise ValueError("max_tokens must be >= 1")
     if not text:
         return []
 
-    fast = getattr(counter, "split", None)
-    if callable(fast):
-        return [c for c in fast(text, max_tokens) if c.strip()]
+    def _hard_split(segment: str) -> List[str]:
+        """Token-count split for a single line that exceeds max_tokens."""
+        if chr(10) in segment:  # defensive; caller passes single lines
+            return [segment]
+        out: List[str] = []
+        remaining = segment
+        while remaining:
+            if counter(remaining) <= max_tokens:
+                out.append(remaining)
+                break
+            guess = max(1, int(len(remaining) * max_tokens / max(counter(remaining), 1)))
+            steps = 0
+            while guess > 1 and counter(remaining[:guess]) > max_tokens and steps < 64:
+                guess = max(1, int(guess * 0.9))
+                steps += 1
+            while guess < len(remaining) and counter(remaining[: guess + 1]) <= max_tokens:
+                guess += 1
+            if guess <= 0:
+                guess = 1
+            # Snap to a whitespace boundary so identifier tokens (IDs, numbers,
+            # handles — anything without spaces) are never cut in half.
+            ws = remaining.rfind(" ", 0, guess)
+            if ws > guess * 0.5:
+                guess = ws + 1
+            out.append(remaining[:guess])
+            remaining = remaining[guess:]
+        return out
 
     chunks: List[str] = []
-    remaining = text
-    while remaining:
-        total = counter(remaining)
-        if total <= max_tokens:
-            chunks.append(remaining)
-            break
-
-        # Analytic first guess from measured token density.
-        guess = max(1, int(len(remaining) * max_tokens / max(total, 1)))
-        # Shrink until the prefix fits (bounded, ~log-ish via 5% steps).
-        steps = 0
-        while guess > 1 and counter(remaining[:guess]) > max_tokens and steps < 64:
-            guess = max(1, int(guess * 0.9))
-            steps += 1
-        # Extend while it still fits.
-        while guess < len(remaining) and counter(remaining[: guess + 1]) <= max_tokens:
-            guess += 1
-
-        cut = guess
-        # Snap to a whitespace boundary, but never backtrack too far.
-        ws = remaining.rfind(" ", 0, cut)
-        if ws > cut * 3 // 4:
-            cut = ws + 1
-
-        chunks.append(remaining[:cut])
-        remaining = remaining[cut:]
+    current: List[str] = []
+    current_tokens = 0
+    for line in text.splitlines(keepends=True):
+        line_tokens = counter(line)
+        if line_tokens > max_tokens:
+            if current:
+                chunks.append("".join(current))
+                current, current_tokens = [], 0
+            chunks.extend(_hard_split(line.rstrip("\n")) if line.strip() else [line])
+            continue
+        if current_tokens + line_tokens > max_tokens and current:
+            chunks.append("".join(current))
+            current, current_tokens = [], 0
+        current.append(line)
+        current_tokens += line_tokens
+    if current:
+        chunks.append("".join(current))
 
     return [c for c in chunks if c.strip()]
