@@ -9,7 +9,7 @@
 [![CI](https://github.com/sumitnemade/longloom/actions/workflows/ci.yml/badge.svg)](https://github.com/sumitnemade/longloom/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Typed](https://img.shields.io/badge/typing-typed-blue)](longloom/py.typed)
-[![Tests](https://img.shields.io/badge/tests-41%20passing-brightgreen)](#test-it-yourself)
+[![Tests](https://img.shields.io/badge/tests-50%20passing-brightgreen)](#test-it-yourself)
 
 *Any LLM · Any storage · Measured no-loss · 2 core dependencies*
 
@@ -155,6 +155,35 @@ store = create_store("memory://")                            # ephemeral
 All backends pass the identical contract suite (round-trip, filters, budget,
 upsert idempotency, search, stats, delete).
 
+## Embedding in existing databases
+
+No dedicated database needed — LongLoom lives inside **your** tables with
+**your** column names, next to your application's own data:
+
+```python
+store = create_store(
+    "postgresql://app@host/mydb",        # the database you already run
+    table="app_document_chunks",         # your table
+    columns={                            # your column names
+        "id": "chunk_pk", "content": "text_body",
+        "metadata": "meta_json", "session_id": "sess",
+    },
+    namespace="support-agent",           # several apps share one table safely
+    init_schema=False,                   # your migrations own the DDL
+)
+```
+
+| Option | Meaning | Supported by |
+|---|---|---|
+| `table=` | your table/collection name | SQL, MongoDB, Supabase |
+| `columns=` | logical → physical field mapping | SQL, MongoDB, Supabase |
+| `namespace=` + `namespace_field=` | discriminator so multiple apps share one table | SQL, MongoDB, Supabase |
+| `init_schema=False` | your migrations own the DDL | SQL backends |
+| `SqlContextStore.ddl()` / `table_sql(...)` | generate DDL matching your names, for your migration tooling | SQL, Supabase |
+
+Same table, two apps, zero cross-talk — namespaces isolate sessions even with
+identical session IDs. See `examples/17_embed_existing_database.py`.
+
 ## Built for production
 
 | | |
@@ -200,7 +229,7 @@ python examples/run_all.py       # 16 examples; skips gracefully what's missing
 
 ```bash
 pip install -e ".[dev]"
-pytest tests/ -v                       # 41 tests; network-dependent ones self-skip
+pytest tests/ -v                       # 50 tests; network-dependent ones self-skip
 NVIDIA_API_KEY=... pytest tests/ -v    # + real NVIDIA, Postgres, MySQL, MongoDB
 OPENAI_API_KEY=... pytest tests/ -v    # + real OpenAI end-to-end
 ```

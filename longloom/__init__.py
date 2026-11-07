@@ -15,6 +15,7 @@ storage backend::
 
 from .chunks import ContextChunk, content_hash, split_text
 from .factory import SUPPORTED_SCHEMES, create_store
+from .stores.naming import FieldMap
 from .graph import MapReduceState, build_graph
 from .llm import LLMAdapter, LLMLike, init_llm
 from .processor import MapReduceProcessor
@@ -58,6 +59,7 @@ __all__ = [
     "SupabaseContextStore",
     "create_store",
     "SUPPORTED_SCHEMES",
+    "FieldMap",
     # tokens
     "TokenCounter",
     "TiktokenCounter",

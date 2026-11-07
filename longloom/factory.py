@@ -33,10 +33,26 @@ SUPPORTED_SCHEMES = (
 )
 
 
-def create_store(url: str, table: str = "context_chunks", **kwargs) -> BaseContextStore:
-    """Create a storage backend from a connection string (see module docstring)."""
+def create_store(
+    url: str,
+    table: str = "context_chunks",
+    columns: Optional[Dict[str, str]] = None,
+    namespace: Optional[str] = None,
+    **kwargs,
+) -> BaseContextStore:
+    """Create a storage backend from a connection string (see module docstring).
+
+    ``table``, ``columns`` (logical → physical names) and ``namespace`` (a
+    discriminator letting several apps share one table/collection) embed
+    LongLoom into existing databases — supported by the SQL, MongoDB and
+    Supabase backends; ``memory`` and ``json`` ignore them.
+    """
     if not url:
         raise ValueError("url must be a non-empty connection string")
+    import re as _re
+
+    if table and not _re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", table):
+        raise ValueError(f"invalid table/collection name: {table!r}")
     parsed = urlparse(url)
     scheme = (parsed.scheme or "").lower()
 
@@ -56,7 +72,8 @@ def create_store(url: str, table: str = "context_chunks", **kwargs) -> BaseConte
         db_path = unquote(path) if path and path != ":memory:" else ":memory:"
         from .stores.sqlite import SQLiteContextStore
 
-        return SQLiteContextStore(db_path=db_path, **kwargs)
+        return SQLiteContextStore(db_path=db_path, table=table, columns=columns,
+                                  namespace=namespace, **kwargs)
 
     if scheme in ("postgres", "postgresql"):
         from .stores.sql import POSTGRES_DIALECT, SqlContextStore
@@ -64,7 +81,7 @@ def create_store(url: str, table: str = "context_chunks", **kwargs) -> BaseConte
         return SqlContextStore(
             connect=_sql_connect_factory(url, "postgres"),
             dialect=POSTGRES_DIALECT,
-            table=table,
+            table=table, columns=columns, namespace=namespace,
             **kwargs,
         )
 
@@ -74,7 +91,7 @@ def create_store(url: str, table: str = "context_chunks", **kwargs) -> BaseConte
         return SqlContextStore(
             connect=_sql_connect_factory(url, "mysql"),
             dialect=MYSQL_DIALECT,
-            table=table,
+            table=table, columns=columns, namespace=namespace,
             **kwargs,
         )
 
@@ -83,7 +100,8 @@ def create_store(url: str, table: str = "context_chunks", **kwargs) -> BaseConte
 
         db_name = unquote(parsed.path.lstrip("/")) or kwargs.pop("db_name", "longloom")
         return MongoContextStore(client_or_uri=url, db_name=db_name,
-                                 collection=kwargs.pop("collection", table), **kwargs)
+                                 collection=kwargs.pop("collection", table),
+                                 columns=columns, namespace=namespace, **kwargs)
 
     if scheme == "supabase":
         from .stores.supabase import SupabaseContextStore
@@ -92,7 +110,8 @@ def create_store(url: str, table: str = "context_chunks", **kwargs) -> BaseConte
         # supabase://x.supabase.co → https://x.supabase.co (cloud);
         # supabase://127.0.0.1:8905 → http://… (local PostgREST stub).
         project_url = f"https://{host}" if host.endswith(".supabase.co") else f"http://{host}"
-        return SupabaseContextStore(url=project_url, table=table, **kwargs)
+        return SupabaseContextStore(url=project_url, table=table, columns=columns,
+                                    namespace=namespace, **kwargs)
 
     if scheme == "https" and re.search(r"\.supabase\.", parsed.netloc or ""):
         from .stores.supabase import SupabaseContextStore

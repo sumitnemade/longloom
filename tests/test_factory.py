@@ -89,19 +89,27 @@ def test_sql_dialect_generation():
     """Postgres/MySQL dialects generate correct upsert + DDL SQL."""
     from longloom import MYSQL_DIALECT, POSTGRES_DIALECT
 
-    cols = ["id", "content_hash", "content"]
-    pg = POSTGRES_DIALECT.upsert("t", cols)
-    assert pg == (
-        "INSERT INTO t (id, content_hash, content) VALUES (%s, %s, %s) "
-        "ON CONFLICT (id) DO UPDATE SET content_hash = EXCLUDED.content_hash, "
-        "content = EXCLUDED.content"
-    )
-    my = MYSQL_DIALECT.upsert("t", cols)
-    assert "ON DUPLICATE KEY UPDATE" in my and "VALUES(content)" in my
-    assert "%s" in my
+    from longloom.stores.naming import FieldMap
+
+    cols = FieldMap(table="t").all_columns          # full logical → physical map
+    custom = FieldMap(table="t", columns={"id": "chunk_id", "content": "body"},
+                      namespace="app-1", namespace_field="app_name").all_columns
+
+    pg = POSTGRES_DIALECT.upsert("t", cols, None)
+    assert pg.startswith("INSERT INTO t (id, content_hash") and "ON CONFLICT (id) DO UPDATE" in pg
+    assert "EXCLUDED.content_hash" in pg and pg.count("%s") == len(cols)
+
+    pg_custom = POSTGRES_DIALECT.upsert("t", custom, "app_name")
+    assert pg_custom.startswith("INSERT INTO t (chunk_id") and "app_name" in pg_custom
+    assert "ON CONFLICT (chunk_id)" in pg_custom
+
+    my = MYSQL_DIALECT.upsert("t", cols, None)
+    assert "ON DUPLICATE KEY UPDATE" in my and "VALUES(content)" in my and "%s" in my
     assert POSTGRES_DIALECT.placeholder == "%s"
-    assert any("CREATE TABLE IF NOT EXISTS t" in stmt for stmt in POSTGRES_DIALECT.ddl("t"))
-    assert any("MEDIUMTEXT" in stmt for stmt in MYSQL_DIALECT.ddl("t"))
+    ddl_pg = "\n".join(POSTGRES_DIALECT.ddl("t", custom, "app_name"))
+    assert "chunk_id TEXT PRIMARY KEY" in ddl_pg and "body TEXT" in ddl_pg
+    assert "app_name TEXT NOT NULL DEFAULT ''" in ddl_pg
+    assert any("MEDIUMTEXT" in stmt for stmt in MYSQL_DIALECT.ddl("t", cols, None))
 
 
 def test_invalid_table_name_rejected():
@@ -110,7 +118,7 @@ def test_invalid_table_name_rejected():
     import sqlite3
     from longloom import SQLITE_DIALECT, SqlContextStore
 
-    with pytest.raises(ValueError, match="invalid table name"):
+    with pytest.raises(ValueError, match="invalid table/collection name"):
         SqlContextStore(
             connect=lambda: sqlite3.connect(":memory:"),
             dialect=SQLITE_DIALECT,

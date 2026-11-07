@@ -4,11 +4,15 @@ Works with any DB-API 2.0 connection (PEP 249). Dialects provided for
 PostgreSQL, MySQL/MariaDB, and SQLite; any other DB-API database can be used
 by supplying a custom :class:`SqlDialect`.
 
-    from longloom.stores.sql import SqlContextStore, POSTGRES_DIALECT
-    import psycopg2
+Embedding in an existing database::
+
     store = SqlContextStore(
-        connect=lambda: psycopg2.connect("postgresql://user@/mydb"),
+        connect=lambda: psycopg2.connect(app_dsn),
         dialect=POSTGRES_DIALECT,
+        table="app_chunks",                        # your table
+        columns={"id": "chunk_id", "content": "body"},  # your columns
+        namespace="support-agent",                 # share the table across apps
+        init_schema=False,                         # your migrations own the DDL
     )
 
 Or let :func:`longloom.create_store` build it from a URL (uses SQLAlchemy when
@@ -23,71 +27,78 @@ from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional
 
 from .base import BaseContextStore
+from .naming import LOGICAL_FIELDS, FieldMap
 from ..chunks import ContextChunk
 
-__all__ = ["SqlDialect", "SqlContextStore", "POSTGRES_DIALECT", "MYSQL_DIALECT", "SQLITE_DIALECT"]
+__all__ = [
+    "SqlDialect", "SqlContextStore",
+    "POSTGRES_DIALECT", "MYSQL_DIALECT", "SQLITE_DIALECT",
+]
 
 _NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-
-_COLS = (
-    "id", "content_hash", "metadata", "token_count", "created_at",
-    "chunk_index", "total_chunks", "session_id", "content",
-)
 
 
 @dataclass(frozen=True)
 class SqlDialect:
     name: str
-    placeholder: str                      # "?" (sqlite) / "%s" (pg, mysql)
-    ddl: Callable[[str], List[str]]       # table -> CREATE statements
-    upsert: Callable[[str, List[str]], str]  # (table, cols) -> upsert SQL
+    placeholder: str                                   # "?" (sqlite) / "%s" (pg, mysql)
+    ddl: Callable[[str, Dict[str, str], Optional[str]], List[str]]
+    upsert: Callable[[str, Dict[str, str], Optional[str]], str]
 
 
-def _ddl_postgres(table: str) -> List[str]:
+def _ddl_postgres(table: str, c: Dict[str, str], ns: Optional[str]) -> List[str]:
+    defs = [
+        f"{c['id']} TEXT PRIMARY KEY",
+        f"{c['content_hash']} TEXT NOT NULL",
+        f"{c['metadata']} TEXT NOT NULL",
+        f"{c['token_count']} INTEGER NOT NULL",
+        f"{c['created_at']} TEXT NOT NULL",
+        f"{c['chunk_index']} INTEGER NOT NULL",
+        f"{c['total_chunks']} INTEGER NOT NULL",
+        f"{c['session_id']} TEXT NOT NULL",
+        f"{c['content']} TEXT",
+    ]
+    if ns:
+        defs.append(f"{ns} TEXT NOT NULL DEFAULT ''")
     return [
-        f"""CREATE TABLE IF NOT EXISTS {table} (
-            id TEXT PRIMARY KEY,
-            content_hash TEXT NOT NULL,
-            metadata TEXT NOT NULL,
-            token_count INTEGER NOT NULL,
-            created_at TEXT NOT NULL,
-            chunk_index INTEGER NOT NULL,
-            total_chunks INTEGER NOT NULL,
-            session_id TEXT NOT NULL,
-            content TEXT
-        )""",
-        f"CREATE INDEX IF NOT EXISTS idx_{table}_session ON {table} (session_id, chunk_index)",
+        f"CREATE TABLE IF NOT EXISTS {table} ({', '.join(defs)})",
+        f"CREATE INDEX IF NOT EXISTS idx_{table}_session ON {table} ({c['session_id']}, {c['chunk_index']})",
     ]
 
 
-def _upsert_postgres(table: str, cols: List[str]) -> str:
-    updates = ", ".join(f"{c} = EXCLUDED.{c}" for c in cols if c != "id")
+def _upsert_postgres(table: str, c: Dict[str, str], ns: Optional[str]) -> str:
+    cols = list(c.values())
+    updates = ", ".join(f"{col} = EXCLUDED.{col}" for col in cols if col != c["id"])
     return (
         f"INSERT INTO {table} ({', '.join(cols)}) "
         f"VALUES ({', '.join('%s' for _ in cols)}) "
-        f"ON CONFLICT (id) DO UPDATE SET {updates}"
+        f"ON CONFLICT ({c['id']}) DO UPDATE SET {updates}"
     )
 
 
-def _ddl_mysql(table: str) -> List[str]:
+def _ddl_mysql(table: str, c: Dict[str, str], ns: Optional[str]) -> List[str]:
+    defs = [
+        f"{c['id']} VARCHAR(255) PRIMARY KEY",
+        f"{c['content_hash']} VARCHAR(64) NOT NULL",
+        f"{c['metadata']} TEXT NOT NULL",
+        f"{c['token_count']} INTEGER NOT NULL",
+        f"{c['created_at']} VARCHAR(64) NOT NULL",
+        f"{c['chunk_index']} INTEGER NOT NULL",
+        f"{c['total_chunks']} INTEGER NOT NULL",
+        f"{c['session_id']} VARCHAR(255) NOT NULL",
+        f"{c['content']} MEDIUMTEXT",
+    ]
+    if ns:
+        defs.append(f"{ns} VARCHAR(128) NOT NULL DEFAULT ''")
     return [
-        f"""CREATE TABLE IF NOT EXISTS {table} (
-            id VARCHAR(255) PRIMARY KEY,
-            content_hash VARCHAR(64) NOT NULL,
-            metadata TEXT NOT NULL,
-            token_count INTEGER NOT NULL,
-            created_at VARCHAR(64) NOT NULL,
-            chunk_index INTEGER NOT NULL,
-            total_chunks INTEGER NOT NULL,
-            session_id VARCHAR(255) NOT NULL,
-            content MEDIUMTEXT,
-            INDEX idx_{table}_session (session_id, chunk_index)
-        )""",
+        f"""CREATE TABLE IF NOT EXISTS {table} ({', '.join(defs)},
+            INDEX idx_{table}_session ({c['session_id']}, {c['chunk_index']}))""",
     ]
 
 
-def _upsert_mysql(table: str, cols: List[str]) -> str:
-    updates = ", ".join(f"{c} = VALUES({c})" for c in cols if c != "id")
+def _upsert_mysql(table: str, c: Dict[str, str], ns: Optional[str]) -> str:
+    cols = list(c.values())
+    updates = ", ".join(f"{col} = VALUES({col})" for col in cols if col != c["id"])
     return (
         f"INSERT INTO {table} ({', '.join(cols)}) "
         f"VALUES ({', '.join('%s' for _ in cols)}) "
@@ -95,24 +106,28 @@ def _upsert_mysql(table: str, cols: List[str]) -> str:
     )
 
 
-def _ddl_sqlite(table: str) -> List[str]:
+def _ddl_sqlite(table: str, c: Dict[str, str], ns: Optional[str]) -> List[str]:
+    defs = [
+        f"{c['id']} TEXT PRIMARY KEY",
+        f"{c['content_hash']} TEXT NOT NULL",
+        f"{c['metadata']} TEXT NOT NULL",
+        f"{c['token_count']} INTEGER NOT NULL",
+        f"{c['created_at']} TEXT NOT NULL",
+        f"{c['chunk_index']} INTEGER NOT NULL",
+        f"{c['total_chunks']} INTEGER NOT NULL",
+        f"{c['session_id']} TEXT NOT NULL",
+        f"{c['content']} TEXT",
+    ]
+    if ns:
+        defs.append(f"{ns} TEXT NOT NULL DEFAULT ''")
     return [
-        f"""CREATE TABLE IF NOT EXISTS {table} (
-            id TEXT PRIMARY KEY,
-            content_hash TEXT NOT NULL,
-            metadata TEXT NOT NULL,
-            token_count INTEGER NOT NULL,
-            created_at TEXT NOT NULL,
-            chunk_index INTEGER NOT NULL,
-            total_chunks INTEGER NOT NULL,
-            session_id TEXT NOT NULL,
-            content TEXT
-        )""",
-        f"CREATE INDEX IF NOT EXISTS idx_{table}_session ON {table} (session_id, chunk_index)",
+        f"CREATE TABLE IF NOT EXISTS {table} ({', '.join(defs)})",
+        f"CREATE INDEX IF NOT EXISTS idx_{table}_session ON {table} ({c['session_id']}, {c['chunk_index']})",
     ]
 
 
-def _upsert_sqlite(table: str, cols: List[str]) -> str:
+def _upsert_sqlite(table: str, c: Dict[str, str], ns: Optional[str]) -> str:
+    cols = list(c.values())
     return (
         f"INSERT OR REPLACE INTO {table} ({', '.join(cols)}) "
         f"VALUES ({', '.join('?' for _ in cols)})"
@@ -129,7 +144,11 @@ class SqlContextStore(BaseContextStore):
 
     ``content_dir=None`` keeps chunk text inline in the table (default, fully
     self-contained). Pass ``content_dir=...`` to store text in hash-addressed
-    files instead — the same layout the legacy SQLite backend used.
+    files instead.
+
+    Embedding in an existing database: pass ``table``, ``columns`` (logical →
+    physical names) and ``namespace`` (a discriminator so several apps share
+    one table). See :mod:`longloom.stores.naming`.
     """
 
     def __init__(
@@ -137,16 +156,19 @@ class SqlContextStore(BaseContextStore):
         connect: Callable[[], Any],
         dialect: SqlDialect,
         table: str = "context_chunks",
+        columns: Optional[Dict[str, str]] = None,
+        namespace: Optional[str] = None,
+        namespace_field: str = "namespace",
         content_dir: Optional[str] = None,
         init_schema: bool = True,
         **kwargs,
     ):
         super().__init__(**kwargs)
-        if not _NAME_RE.match(table):
-            raise ValueError(f"invalid table name: {table!r}")
+        self.names = FieldMap(table=table, columns=columns or {}, namespace=namespace,
+                              namespace_field=namespace_field)
         self._connect = connect
         self.dialect = dialect
-        self.table = table
+        self.table = self.names.table
         self.content_dir = content_dir
         if content_dir:
             os.makedirs(content_dir, exist_ok=True)
@@ -154,8 +176,15 @@ class SqlContextStore(BaseContextStore):
         if init_schema:
             self.init_schema()
 
+    # -- schema -----------------------------------------------------------
+
+    def ddl(self) -> List[str]:
+        """CREATE statements for the (possibly custom-named) table — for your
+        own migration tooling."""
+        return self.dialect.ddl(self.table, self.names.all_columns, self.names.namespace_field)
+
     def init_schema(self) -> None:
-        for statement in self.dialect.ddl(self.table):
+        for statement in self.ddl():
             self.conn.execute(statement)
         self.conn.commit()
 
@@ -169,7 +198,7 @@ class SqlContextStore(BaseContextStore):
                 fh.write(chunk.content)
             content = None
         session_id = chunk.id.rsplit("_", 2)[0]
-        return [
+        row: List[Any] = [
             chunk.id,
             chunk.metadata["content_hash"],
             json.dumps(chunk.metadata),
@@ -180,12 +209,15 @@ class SqlContextStore(BaseContextStore):
             session_id,
             content,
         ]
+        if self.names.namespace is not None:
+            row.append(self.names.namespace)
+        return row
 
     def _from_row(self, row: Any) -> ContextChunk:
         (
             cid, content_hash, metadata_json, token_count, created_at,
             chunk_index, total_chunks, _session_id, content,
-        ) = row
+        ) = row[:9]
         if content is None and self.content_dir:
             path = self._content_path(content_hash)
             content = ""
@@ -205,8 +237,7 @@ class SqlContextStore(BaseContextStore):
     # -- backend primitives ------------------------------------------------
 
     def _persist(self, chunks: List[ContextChunk]) -> None:
-        sql = self.dialect.upsert(self.table, list(_COLS))
-        ph = self.dialect.placeholder
+        sql = self.dialect.upsert(self.table, self.names.all_columns, self.names.namespace_field)
         for chunk in chunks:
             self.conn.execute(sql, self._to_row(chunk))
         self.conn.commit()
@@ -216,33 +247,42 @@ class SqlContextStore(BaseContextStore):
         session_id: str,
         chunk_indices: Optional[List[int]] = None,
     ) -> List[ContextChunk]:
-        ph = self.dialect.placeholder
-        sql = f"SELECT {', '.join(_COLS)} FROM {self.table} WHERE session_id = {ph}"
+        c = self.names.all_columns
+        select_cols = [c[name] for name in LOGICAL_FIELDS]
+        sql = f"SELECT {', '.join(select_cols)} FROM {self.table} WHERE {c['session_id']} = {self.dialect.placeholder}"
         params: List[Any] = [session_id]
+        if self.names.namespace is not None:
+            sql += f" AND {c['namespace']} = {self.dialect.placeholder}"
+            params.append(self.names.namespace)
         if chunk_indices is not None:
             if not chunk_indices:
                 return []
-            marks = ", ".join(ph for _ in chunk_indices)
-            sql += f" AND chunk_index IN ({marks})"
+            marks = ", ".join(self.dialect.placeholder for _ in chunk_indices)
+            sql += f" AND {c['chunk_index']} IN ({marks})"
             params += list(chunk_indices)
-        sql += " ORDER BY chunk_index"
+        sql += f" ORDER BY {c['chunk_index']}"
         rows = self.conn.execute(sql, params).fetchall()
         return [self._from_row(row) for row in rows]
 
     def _delete_session(self, session_id: str) -> None:
         ph = self.dialect.placeholder
+        c = self.names.all_columns
         if self.content_dir:
-            rows = self.conn.execute(
-                f"SELECT content_hash FROM {self.table} WHERE session_id = {ph}",
-                [session_id],
-            ).fetchall()
-            for (content_hash,) in rows:
+            sql = f"SELECT {c['content_hash']} FROM {self.table} WHERE {c['session_id']} = {ph}"
+            params: List[Any] = [session_id]
+            if self.names.namespace is not None:
+                sql += f" AND {c['namespace']} = {ph}"
+                params.append(self.names.namespace)
+            for (content_hash,) in self.conn.execute(sql, params).fetchall():
                 path = self._content_path(content_hash)
                 if os.path.exists(path):
                     os.remove(path)
-        self.conn.execute(
-            f"DELETE FROM {self.table} WHERE session_id = {ph}", [session_id]
-        )
+        sql = f"DELETE FROM {self.table} WHERE {c['session_id']} = {ph}"
+        params = [session_id]
+        if self.names.namespace is not None:
+            sql += f" AND {c['namespace']} = {ph}"
+            params.append(self.names.namespace)
+        self.conn.execute(sql, params)
         self.conn.commit()
 
     # -- search / info --------------------------------------------------------
@@ -264,13 +304,15 @@ class SqlContextStore(BaseContextStore):
 
     def get_session_info(self, session_id: str) -> Dict[str, Any]:
         ph = self.dialect.placeholder
-        row = self.conn.execute(
-            f"SELECT COUNT(*), COALESCE(SUM(token_count), 0), "
-            f"MIN(created_at), MAX(created_at) "
-            f"FROM {self.table} WHERE session_id = {ph}",
-            [session_id],
-        ).fetchone()
-        count, tokens, first, last = row
+        c = self.names.all_columns
+        sql = (f"SELECT COUNT(*), COALESCE(SUM({c['token_count']}), 0), "
+               f"MIN({c['created_at']}), MAX({c['created_at']}) "
+               f"FROM {self.table} WHERE {c['session_id']} = {ph}")
+        params: List[Any] = [session_id]
+        if self.names.namespace is not None:
+            sql += f" AND {c['namespace']} = {ph}"
+            params.append(self.names.namespace)
+        count, tokens, first, last = self.conn.execute(sql, params).fetchone()
         if not count:
             return {"session_id": session_id, "chunk_count": 0, "total_tokens": 0}
         return {
@@ -284,6 +326,10 @@ class SqlContextStore(BaseContextStore):
     def close(self) -> None:
         try:
             self.conn.commit()
+        except Exception:
+            pass
+        try:
+            self.conn.close()
         except Exception:
             pass
 
