@@ -1,166 +1,233 @@
+<div align="center">
+
 # 🧶 LongLoom
 
 **Weave documents of any length through LLM map/merge/repair — without losing a thread.**
 
-LongLoom takes documents far larger than any model's context window and turns them
-into summaries, extracted fact lists, and structured specs — over **any LLM** and **any storage**, with **measured** (not assumed)
-information preservation.
+[![PyPI](https://img.shields.io/pypi/v/longloom)](https://pypi.org/project/longloom/)
+[![Python](https://img.shields.io/pypi/pyversions/longloom)](https://pypi.org/project/longloom/)
+[![CI](https://github.com/sumitnemade/longloom/actions/workflows/ci.yml/badge.svg)](https://github.com/sumitnemade/longloom/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Typed](https://img.shields.io/badge/typing-typed-blue)](longloom/py.typed)
+[![Tests](https://img.shields.io/badge/tests-41%20passing-brightgreen)](#test-it-yourself)
+
+*Any LLM · Any storage · Measured no-loss · 2 core dependencies*
+
+</div>
+
+---
+
+Your model accepts 8K, 128K, or 200K tokens — your documents don't care.
+Annual reports, BRDs, legal contracts, log archives, codebases: they all blow
+past the window, and naive truncation silently drops the facts you need.
+
+**LongLoom** splits the problem the way humans do — read in chunks, extract,
+combine, condense — as a LangGraph pipeline with **measured** information
+preservation, over **any LLM** you already use and **any storage** you already run.
 
 ```text
-                ┌──────────────┐
-  500-page doc ─►  CHUNK+STORE ─► every byte persisted (SQLite / Postgres / Mongo / …)
-                └──────┬───────┘
-                       ▼        MAP   one LLM call per chunk, verbatim or summarizing
-                ┌──────────────┐
-                │ map results  │
-                └──────┬───────┘
-                       ▼        MERGE window-sized hierarchical combine calls
-                ┌──────────────┐        (scales past any single context window)
-                │ merged draft │
-                └──────┬───────┘
-                       ▼        REPAIR bounded condensation loop, if still too big
-                ┌──────────────┐
-                │ final output │  +  verification: every fact accounted for
-                └──────────────┘
+              ┌───────────────┐
+ big document ─► CHUNK + STORE ─► every byte persisted (SQLite / Postgres / Mongo / …)
+              └───────┬───────┘
+                      ▼   MAP      one LLM call per chunk — verbatim or summarizing
+              ┌───────────────┐
+              │  map results  │
+              └───────┬───────┘
+                      ▼   MERGE   window-sized hierarchical combine calls
+              ┌───────────────┐           (scales past any single context window)
+              │  merged draft │
+              └───────┬───────┘
+                      ▼   REPAIR  bounded condensation loop, only if still too big
+              ┌───────────────┐
+              │ final result  │  +  verification: every fact accounted for
+              └───────────────┘
 ```
-
----
-
-## Why LongLoom
-
-| | |
-|---|---|
-| 🔌 **Any LLM. Any storage.** | One dependency seam each. LangChain chat models, 8 provider helpers, or a bare `str → str` callable. Memory → SQLite → JSONL → **PostgreSQL · MySQL · MongoDB · Supabase** → or subclass one ABC for your own (Redis ships as a 40-line example). |
-| 🧵 **Measured no-loss mode** | `PromptTemplates.for_extraction()` copies fact-bearing lines verbatim instead of summarizing. **Measured result: 100% fact preservation (41/41) on messy unstructured documents — stable across repeated real-LLM runs on NVIDIA *and* OpenAI.** Summarizing prompts measurably drop 2–10% of facts; the verbatim preset eliminates it. |
-| 📈 **Scales past any window** | Hierarchical merge combines map results in window-sized groups recursively — a **45k-token verbatim run survives an 8k window** (unit-tested against a window-enforcing fake). |
-| 🔁 **Bounded repair loop** | Outputs that still exceed the budget are condensed with a capped attempt count — never an infinite loop, never silent truncation. |
-| ✅ **Verify, don't trust** | Fact-preservation reports, lossless-chunking assertions, and a window-enforcing fake-LLM suite are first-class. **42 tests, including real-API and real-database integrations.** |
-| 🧠 **Provider-native details handled** | NVIDIA reasoning models: real model IDs, a `thinking` toggle, and the `content=None` starvation guard. OpenAI quirks (`extra_body`, temperature restrictions) abstracted away. |
-| 🚢 **Deploy-ready** | Typed package (`py.typed`), dynamic versioning, per-provider pip extras, retry with exponential backoff, XSS-hardened artifact viewers, MIT licensed. |
-
-**Verified against real systems** — not mocks: 2 providers × 8 storage backends
-(all green), real NVIDIA Nemotron and OpenAI GPT end-to-end with SQLite
-persistence and reopen.
-
----
 
 ## Install
 
 ```bash
-pip install longloom                    # core: langgraph + langchain-core only
-pip install "longloom[tiktoken]"        # exact token counting (recommended)
-pip install "longloom[databases]"       # + Postgres / MySQL / MongoDB / Supabase
-pip install "longloom[all]"             # everything
+pip install "longloom[all]"      # batteries included
 ```
 
-Python ≥ 3.10. NVIDIA key: https://integrate.api.nvidia.com/
+or just the core (two dependencies: `langgraph` + `langchain-core`):
 
-## 60-second start
+```bash
+pip install longloom
+```
+
+Python ≥ 3.10 · Optional extras: `[tiktoken]` `[nvidia]` `[openai]` `[postgres]` `[mysql]` `[mongodb]` `[supabase]` `[databases]`
+
+## 60-second quickstart
 
 ```python
-from longloom import (
-    MapReduceProcessor, PromptTemplates, SQLiteContextStore, init_llm,
-)
+from longloom import MapReduceProcessor, SQLiteContextStore, init_llm
 
 processor = MapReduceProcessor(
     llm=init_llm("nvidia", "nvidia/nemotron-3-ultra-550b-a55b", thinking=False),
     store=SQLiteContextStore("ctx.db"),
     max_chunk_tokens=3000,
-    max_context_tokens=8192,                       # the model's real window
-    prompts=PromptTemplates.for_extraction(),      # no-loss verbatim mode
+    max_context_tokens=8192,          # your model's real window
 )
 
-result = processor.process(huge_document, task="Summarize key themes")
-print(result["final_result"])                      # verified fact-complete
-
-# everything is persisted — retrieve, search, or delete later
-processor.search_session(result["session_id"], "AlphaFold")
+result = processor.process(
+    annual_report,                    # 50K tokens? 500K? doesn't matter
+    task="Summarize the key findings",
+)
+print(result["final_result"])
+print(f"{result['num_chunks']} chunks · {result['total_input_tokens']:,} tokens · "
+      f"{result['repair_attempts']} repairs")
 ```
 
-Swap providers or databases without touching the workflow:
+Every run is **persisted and queryable** afterwards:
 
 ```python
-llm   = init_llm("openai", "gpt-4o-mini")            # or anthropic, groq, ollama…
-llm   = lambda prompt: my_gateway(prompt)            # even a bare function
-store = create_store("postgresql://user:pw@host/longloom")
-store = create_store("mongodb://host:27017/longloom")
-store = create_store("https://myteam.supabase.co")   # + SUPABASE_KEY
+processor.search_session(result["session_id"], "revenue")   # which chunks mention it
+processor.retrieve_chunks(result["session_id"])              # original text, byte-faithful
+processor.get_session_info(result["session_id"])             # chunk/token stats
 ```
 
-## Storage backends
+## When facts must not be lost
 
-| Backend | Extra | Connection string |
+Summarizing prompts measurably drop facts (we measured 2–10% on messy
+documents — different facts every run). When you need *everything*:
+
+```python
+from longloom import PromptTemplates
+
+processor = MapReduceProcessor(
+    llm=llm,
+    store=store,
+    prompts=PromptTemplates.for_extraction(),   # verbatim line-copy mode
+    ...
+)
+```
+
+**Measured result: 100% fact preservation (41/41 planted facts in a log/JSON/
+email/table/document mix — stable across repeated real-LLM runs on NVIDIA and
+OpenAI).** The trade-off is output length: extraction copies, it doesn't
+compress. Summaries → `DEFAULT_PROMPTS`; completeness → `for_extraction()`.
+
+## Any LLM
+
+```python
+init_llm("nvidia",    "nvidia/nemotron-3-ultra-550b-a55b", thinking=False)
+init_llm("openai",    "gpt-4o-mini")
+init_llm("anthropic", "claude-sonnet-4-20250514")
+init_llm("groq" | "ollama" | "mistral" | "deepseek" | "together", ...)
+```
+
+…or bring your own: any LangChain `BaseChatModel`, or a bare function —
+the minimum contract is `str → str`:
+
+```python
+processor = MapReduceProcessor(llm=lambda prompt: my_gateway(prompt), store=store)
+```
+
+Provider quirks are handled for you: NVIDIA reasoning models get real model
+IDs, a `thinking` toggle, and a `content=None` starvation guard; OpenAI
+`extra_body` and temperature restrictions are abstracted away.
+
+## Any storage
+
+```python
+from longloom import create_store
+
+store = create_store("sqlite:///ctx.db")                     # default, single file
+store = create_store("postgresql://user:pw@host/longloom")
+store = create_store("mysql://user:pw@host/longloom")
+store = create_store("mongodb://host:27017/longloom")
+store = create_store("https://myteam.supabase.co")           # + SUPABASE_KEY
+store = create_store("json://data")                          # human-readable JSONL
+store = create_store("memory://")                            # ephemeral
+```
+
+| Backend | Extra | Notes |
 |---|---|---|
-| In-memory | — (default) | `memory://` |
-| JSONL files | — | `json://<dir>` |
-| SQLite | — (stdlib) | `sqlite:///path.db` |
-| **PostgreSQL** | `[postgres]` | `postgresql://user:pw@host/db` |
-| **MySQL / MariaDB** | `[mysql]` | `mysql://user:pw@host/db` |
-| **MongoDB** | `[mongodb]` | `mongodb://host:27017/db` |
-| **Supabase** | `[supabase]` | `https://<proj>.supabase.co` + `SUPABASE_KEY` |
-| **Your own** | — | subclass `BaseContextStore` — four methods |
+| In-memory | — | zero-dependency default |
+| SQLite | — (stdlib) | inline content or file-backed |
+| JSONL files | — | one readable file per session |
+| **PostgreSQL** | `[postgres]` | SQLAlchemy or psycopg2/psycopg |
+| **MySQL / MariaDB** | `[mysql]` | SQLAlchemy or PyMySQL |
+| **MongoDB** | `[mongodb]` | server-side regex search, `$group` stats |
+| **Supabase** | `[supabase]` | REST via supabase-py — no DB connection needed |
+| **Your own** | — | subclass `BaseContextStore` — implement four methods |
 
-SQL URLs prefer SQLAlchemy (pooling, every driver) and fall back to native
-drivers. Other DB-API databases work with a custom `SqlDialect`.
+All backends pass the identical contract suite (round-trip, filters, budget,
+upsert idempotency, search, stats, delete).
 
-## LLM providers
+## Built for production
 
-`init_llm("nvidia" | "openai" | "anthropic" | "groq" | "ollama" | "mistral" |
-"deepseek" | "together", model)` maps straight to the provider's LangChain
-integration (no meta-package needed), or pass any `BaseChatModel` / callable.
-
-## The three prompts you can own
-
-| Preset | Behaviour |
+| | |
 |---|---|
-| `DEFAULT_PROMPTS` | summarizing map/merge — best for readable reports |
-| `PromptTemplates.for_extraction()` | verbatim line-copy — best when **no fact may be lost** |
-| your own `PromptTemplates(...)` | full control; rendering is brace-safe (JSON/logs in content can't break it) |
+| **Hierarchical merge** | Verbatim runs beyond one window still complete — merge calls are grouped and combined recursively (verified: a 45K-token extraction survives an 8K window). |
+| **Retry + pacing** | Exponential backoff for 429/5xx/timeouts, optional min-interval between calls for long matrix runs. |
+| **Bounded repair** | Oversized results condense with a capped attempt count — no infinite loops, no silent truncation. |
+| **Token-count guardrails** | tiktoken exact or zero-dep estimator; chunk sizes clamped so map results are always combinable. |
+| **Typed & versioned** | `py.typed`, semantic versioning, CHANGELOG, per-provider extras. |
 
-## Production hardening (built in, tested)
+### Honest limits
 
-- **Hierarchical merge** — verbatim runs beyond a single window still complete
-- **Retry + exponential backoff** — transient 429/503/timeout proof
-- **Chunk-size guard** — map results are always combinable
-- **XSS-safe artifact viewers** — untrusted documents can't inject script
-- Honest known-limits list (cross-chunk conflict reasoning, provenance,
-  sequential map phase, tokenizer approximation) — documented, not hidden
+- Map/merge **aggregates**; it doesn't reason globally — cross-chunk conflicts
+  (two versions of the same figure) are preserved side by side, not reconciled.
+- Final results don't cite source chunks (the store does — provenance output is
+  on the roadmap).
+- The map phase is sequential; parallelize externally for very large corpora.
+- tiktoken approximates non-OpenAI tokenizers — keep 2× headroom on chunk sizes.
+
+## Examples — every claim is a runnable script
+
+```bash
+git clone https://github.com/sumitnemade/longloom && cd longloom
+pip install -e ".[dev]"
+export NVIDIA_API_KEY=...        # or OPENAI_API_KEY=...
+python examples/run_all.py       # 16 examples; skips gracefully what's missing
+```
+
+| # | Example | One-liner |
+|---|---|---|
+| 01 | quickstart | minimal pipeline, zero setup |
+| 02 | all storage backends | every store via one URL |
+| 03–06 | NVIDIA · OpenAI · Anthropic · local Ollama | same workflow, four vendors |
+| 07 | custom callable | a bare function as the LLM (routing pattern) |
+| 08–11 | PostgreSQL · MySQL · MongoDB · Supabase | one example per database |
+| 12 | custom backend | a working Redis store in ~40 lines |
+| 13 | advanced | custom prompts, token counters, brace-safety |
+| 14 | **NVIDIA × every database** | real Nemotron over 8 backends |
+| 15 | **OpenAI × every database** | real GPT over 8 backends |
+| 16 | **no-loss extraction** | 41/41 facts on a hostile document mix |
 
 ## Test it yourself
 
 ```bash
 pip install -e ".[dev]"
-pytest tests/ -v                              # 42 tests; real-API/DB ones self-skip
-NVIDIA_API_KEY=... pytest tests/ -v           # + real NVIDIA + real Postgres/MySQL/Mongo
-OPENAI_API_KEY=... pytest tests/ -v           # + real OpenAI
-
-python examples/run_all.py                    # 17 runnable examples, full matrix
+pytest tests/ -v                       # 41 tests; network-dependent ones self-skip
+NVIDIA_API_KEY=... pytest tests/ -v    # + real NVIDIA, Postgres, MySQL, MongoDB
+OPENAI_API_KEY=... pytest tests/ -v    # + real OpenAI end-to-end
 ```
 
-Highlights from `examples/`:
+## FAQ
 
-| # | Example | What it proves |
-|---|---|---|
-| 14 | NVIDIA × every database | real Nemotron over 8 backends, 0 failures |
-| 15 | OpenAI × every database | real GPT over 8 backends, 0 failures |
-| 16 | unstructured no-loss | 41/41 planted facts, stable across runs |
+**Do I need LangChain?** Only `langchain-core` (a lightweight dependency).
+Your LLM can even be a plain function.
 
+**What if my output is bigger than the window?** The repair loop condenses it,
+and the merge stage itself groups results hierarchically — oversized inputs are
+the library's job, not yours.
 
-## Package layout
+**Is my data sent anywhere?** Only to the LLM provider you configure. Storage
+stays in whatever database *you* chose.
 
-```
-longloom/
-├── processor.py        # MapReduceProcessor — the one entry point
-├── graph.py            # LangGraph chunk→map→merge→repair (+ hierarchical merge)
-├── llm.py              # LLMAdapter (retry) + init_llm() provider map
-├── nvidia.py           # NVIDIAChatModel — reasoning-aware, requests-based
-├── prompts.py          # brace-safe templates + verbatim extraction preset
-├── chunks.py           # token-aware splitting, any counter
-├── tokens.py           # TiktokenCounter / EstimateCounter
-├── factory.py          # create_store(url) for every backend
-└── stores/             # memory · sqlite · jsonl · sql(pg,mysql) · mongo · supabase
-```
+**Why not just use a 200K-token model?** Cost, latency, and attention decay.
+Chunked extraction is cheaper per token and verifiably complete — and LongLoom
+works with *any* window, so you're never locked to a model generation.
+
+## Contributing
+
+Issues and PRs welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for setup and
+conventions (every fix ships with a test; honest verification is the house
+style). By participating you agree to the
+[Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## License
 
-MIT — see [LICENSE](LICENSE). Changelog: [CHANGELOG.md](CHANGELOG.md).
+[MIT](LICENSE) © Sumit Nemade
