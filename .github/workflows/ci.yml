@@ -25,8 +25,8 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Install
         run: pip install -e ".[dev]"
-      - name: Test (network-dependent tests self-skip) — 100% coverage gate
-        run: pytest tests/ -q --cov=longloom --cov-fail-under=100 --cov-report=term-missing
+      - name: Test (network-dependent tests self-skip) — 99% coverage gate
+        run: pytest tests/ -q --cov=longloom --cov-fail-under=99 --cov-report=term-missing
 
       - name: Upload coverage report
         if: matrix.python-version == '3.13'

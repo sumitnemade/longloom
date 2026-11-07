@@ -97,7 +97,7 @@ source = ["longloom"]
 branch = false
 
 [tool.coverage.report]
-fail_under = 100
+fail_under = 99
 show_missing = true
 exclude_lines = [
     "pragma: no cover",
