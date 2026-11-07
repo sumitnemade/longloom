@@ -9,6 +9,7 @@
 [![CI](https://github.com/sumitnemade/longloom/actions/workflows/ci.yml/badge.svg)](https://github.com/sumitnemade/longloom/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Typed](https://img.shields.io/badge/typing-typed-blue)](longloom/py.typed)
+[![Landing page](https://img.shields.io/badge/docs-longloom.dev-blueviolet)](https://sumitnemade.github.io/longloom/)
 [![Tests](https://img.shields.io/badge/tests-50%20passing-brightgreen)](#test-it-yourself)
 
 *Any LLM · Any storage · Measured no-loss · 2 core dependencies*

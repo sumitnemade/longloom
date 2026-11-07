@@ -73,7 +73,7 @@ dev = [
 
 [project.urls]
 Homepage = "https://github.com/sumitnemade/longloom"
-Documentation = "https://github.com/sumitnemade/longloom#readme"
+Documentation = "https://sumitnemade.github.io/longloom/"
 Changelog = "https://github.com/sumitnemade/longloom/blob/main/CHANGELOG.md"
 Issues = "https://github.com/sumitnemade/longloom/issues"
 
