@@ -54,7 +54,7 @@ pip install "longloom[all]"          # batteries included (all providers + datab
 pip install "longloom[tiktoken,nvidia]"   # pick exactly what you need
 ```
 
-Extras: `[tiktoken]` `[nvidia]` `[openai]` `[postgres]` `[mysql]` `[mongodb]` `[supabase]` `[databases]` `[dev]`
+Extras: `[tiktoken]` `[nvidia]` `[openai]` `[postgres]` `[mysql]` `[mssql]` `[oracle]` `[mongodb]` `[supabase]` `[databases]` `[all]` `[dev]`
 
 Python ≥ 3.10.
 **Tested with**: Python 3.10–3.13 · `langgraph` 1.2.x · `langchain-core` 1.7.x ·
@@ -65,7 +65,7 @@ NVIDIA Nemotron-3-Ultra and OpenAI GPT-4o-mini (real-API test suite).
 ```bash
 git clone https://github.com/sumitnemade/longloom && cd longloom
 pip install -e ".[dev]"              # editable install + test tooling
-pytest tests/ -v                     # 48 tests; network-dependent ones self-skip
+pytest tests/ -v                     # 88 tests; network-dependent ones self-skip
 ```
 
 ## 60-second quickstart
@@ -183,6 +183,8 @@ store = create_store("memory://")                            # ephemeral
 | JSONL files | — | one readable file per session |
 | **PostgreSQL** | `[postgres]` | SQLAlchemy or psycopg2/psycopg |
 | **MySQL / MariaDB** | `[mysql]` | SQLAlchemy or PyMySQL |
+| **Microsoft SQL Server** | `[mssql]` | MERGE-based upsert, NVARCHAR schema |
+| **Oracle** | `[oracle]` | MERGE upsert, numbered binds, CLOB columns |
 | **MongoDB** | `[mongodb]` | server-side regex search, `$group` stats |
 | **Supabase** | `[supabase]` | REST via supabase-py — no DB connection needed |
 | **Your own** | — | subclass `BaseContextStore` — implement four methods |
@@ -227,7 +229,7 @@ identical session IDs. See `examples/17_embed_existing_database.py`.
 | **Retry + pacing** | Exponential backoff for 429/5xx/timeouts, optional min-interval between calls for long matrix runs. |
 | **Bounded repair** | Oversized results condense with a capped attempt count — no infinite loops, no silent truncation. |
 | **Token-count guardrails** | tiktoken exact or zero-dep estimator; chunk sizes clamped so map results are always combinable. |
-| **Parallel map** | `max_workers=8` runs the map phase on a thread pool with shared rate-limit pacing — measured 4× on an 8-chunk document. |
+| **Parallel map** | `max_workers=8` runs the map phase on a thread pool with shared rate-limit pacing — measured ≈4× on an 8-chunk document. |
 | **Checkpoint/resume** | Map results are checkpointed per chunk; `resume=True` re-runs only what never completed after a crash. |
 | **Observability** | `on_event=` emits structured events (per chunk, per LLM call with token usage, per repair) — forward to OTel/Datadog as you like. |
 | **Retention & PII scrubbing** | `scrubber=` rewrites content before anything is stored; `delete_sessions_older_than(days)` sweeps old sessions across every backend. |
@@ -251,7 +253,7 @@ identical session IDs. See `examples/17_embed_existing_database.py`.
 git clone https://github.com/sumitnemade/longloom && cd longloom
 pip install -e ".[dev]"
 export NVIDIA_API_KEY=...        # or OPENAI_API_KEY=...
-python examples/run_all.py       # 17 examples; skips gracefully what's missing
+python examples/run_all.py       # 19 examples; skips gracefully what's missing
 ```
 
 | # | Example | One-liner |
@@ -273,7 +275,7 @@ python examples/run_all.py       # 17 examples; skips gracefully what's missing
 
 ```bash
 pip install -e ".[dev]"
-pytest tests/ -v                       # 50 tests; network-dependent ones self-skip
+pytest tests/ -v                       # 88 tests; network-dependent ones self-skip
 NVIDIA_API_KEY=... pytest tests/ -v    # + real NVIDIA, Postgres, MySQL, MongoDB
 OPENAI_API_KEY=... pytest tests/ -v    # + real OpenAI end-to-end
 ```
