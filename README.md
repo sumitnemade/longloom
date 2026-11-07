@@ -262,6 +262,21 @@ stays in whatever database *you* chose.
 Chunked extraction is cheaper per token and verifiably complete — and LongLoom
 works with *any* window, so you're never locked to a model generation.
 
+## Releasing (maintainers)
+
+```bash
+scripts/release.sh 1.2.0 --push     # tests → bump → changelog → tag → CI publishes to PyPI
+```
+
+One-time setup:
+1. Create the project on pypi.org, then **Trusted Publishing**: owner =
+   your GitHub username/org, repo = `longloom`, workflow = `release.yml`,
+   environment = `pypi` — no API tokens live in the repository.
+2. Push the tag (`--push`) — the release workflow builds, checks metadata,
+   verifies tag↔version, publishes, and attaches artifacts to a GitHub release.
+3. Optional local path: `scripts/release.sh 1.2.0 --publish` with
+   `PYPI_TOKEN` set (TestPyPI: `--testpypi` with `TESTPYPI_TOKEN`).
+
 ## Contributing
 
 Issues and PRs welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for setup and

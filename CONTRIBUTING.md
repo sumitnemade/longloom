@@ -49,8 +49,9 @@ Redis (`:6379`), PostgreSQL/MySQL via `LONGCTX_PG_DSN` / `LONGCTX_MYSQL_DSN`.
 ## Releasing (maintainers)
 
 ```bash
-python -m build
-twine upload dist/*        # after updating CHANGELOG and __version__
+scripts/release.sh 1.2.0 --push
+# runs tests, bumps __version__, moves the CHANGELOG, tags v1.2.0 —
+# pushing the tag triggers .github/workflows/release.yml → PyPI (trusted publishing)
 ```
 
 ## Where to start
