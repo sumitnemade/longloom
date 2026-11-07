@@ -1,0 +1,45 @@
+# ── Secrets ──────────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+
+# ── Python ───────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ── Databases & runtime state (any backend, any location) ───────────
+*.db
+*.sqlite
+*.sqlite3
+*.sqlite-journal
+*_ctx_data/
+longloom_data/
+longloom_test_*/
+
+# ── Generated demo/test artifacts ────────────────────────────────────
+examples/*.txt
+examples/*.png
+examples/*.mmd
+examples/*.dot
+examples/*.html
+!examples/README.md
+
+# ── OS / editors ─────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*~
