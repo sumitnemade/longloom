@@ -12,6 +12,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
+pytest.importorskip("langchain_openai", reason="custom-provider tests need langchain-openai")
+
 from longloom import InMemoryContextStore, LLMAdapter, MapReduceProcessor, init_llm
 from fake_llm import KEY_CONCEPTS, make_doc
 

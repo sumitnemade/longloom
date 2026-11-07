@@ -69,6 +69,7 @@ dev = [
     "sqlalchemy>=2.0",
     "psycopg2-binary>=2.9",
     "pymysql>=1.1",
+    "langchain-openai>=0.2.0",
 ]
 
 [project.urls]
