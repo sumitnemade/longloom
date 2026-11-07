@@ -61,7 +61,7 @@ class MongoContextStore(BaseContextStore):
         try:
             self.collection.create_index(
                 [(self.names.col("session_id"), 1), (self.names.col("chunk_index"), 1)])
-        except Exception:
+        except Exception:  # pragma: no cover — defensive for restricted clusters
             pass  # read-only/Atlas-restricted contexts still work for CRUD
 
     # -- (de)serialization ---------------------------------------------------

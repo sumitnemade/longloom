@@ -1,6 +1,10 @@
 """create_store(url) — URL factory for every backend (no external servers)."""
 from __future__ import annotations
 
+import sys
+import types
+import uuid
+
 import pytest
 
 from longloom import (
@@ -110,6 +114,119 @@ def test_sql_dialect_generation():
     assert "chunk_id TEXT PRIMARY KEY" in ddl_pg and "body TEXT" in ddl_pg
     assert "app_name TEXT NOT NULL DEFAULT ''" in ddl_pg
     assert any("MEDIUMTEXT" in stmt for stmt in MYSQL_DIALECT.ddl("t", cols, None))
+
+
+class _FakeConn:
+    """Minimal conn with .execute — passes _as_executable through unchanged."""
+
+    def __init__(self):
+        self.executed = []
+
+    def execute(self, sql, params=None):
+        self.executed.append((sql, params))
+        return []
+
+    def exec_driver_sql(self, sql, params=None):
+        return self.execute(sql, params)
+
+    def commit(self):
+        pass
+
+    def close(self):
+        pass
+
+
+def test_factory_driver_import_errors(monkeypatch):
+    """With sqlalchemy AND every native driver missing, each engine's
+    fallback raises a helpful ImportError naming the extra to install."""
+    monkeypatch.setitem(sys.modules, "sqlalchemy", None)
+
+    monkeypatch.setitem(sys.modules, "psycopg2", None)
+    monkeypatch.setitem(sys.modules, "psycopg", None)
+    with pytest.raises(ImportError, match="psycopg2-binary"):
+        create_store("postgresql://u:p@h/db")
+
+    monkeypatch.setitem(sys.modules, "pymysql", None)
+    monkeypatch.setitem(sys.modules, "MySQLdb", None)
+    with pytest.raises(ImportError, match="pymysql or mysqlclient"):
+        create_store("mysql://u:p@h/db")
+
+    monkeypatch.setitem(sys.modules, "pymssql", None)
+    with pytest.raises(ImportError, match="pymssql"):
+        create_store("mssql://u:p@h/db")
+
+    monkeypatch.setitem(sys.modules, "oracledb", None)
+    with pytest.raises(ImportError, match="oracledb"):
+        create_store("oracle://u:p@h/svc")
+
+
+def test_factory_sa_adapter_commit_rollback_close(monkeypatch):
+    """Store operations run through the SQLAlchemy adapter: exec_driver_sql on
+    persist, commit via _persist, rollback/close reachable on the adapter."""
+    import sqlalchemy as sa
+
+    from longloom import create_store
+
+    class FakeSaConn:
+        def __init__(self):
+            self.executed = []
+            self.rolled = False
+            self.committed = False
+            self.closed = False
+
+        def exec_driver_sql(self, sql, params=None):
+            self.executed.append((sql, params))
+
+        def cursor(self):
+            return types.SimpleNamespace(execute=lambda sql, params=None: None,
+                                         close=lambda: None)
+
+        def commit(self):
+            self.committed = True
+
+        def rollback(self):
+            self.rolled = True
+
+        def close(self):
+            self.closed = True
+
+    conns = []
+
+    def fake_create_engine(url, **kw):
+        class E:
+            def connect(self_inner):
+                c = FakeSaConn()
+                conns.append(c)
+                return c
+        return E()
+
+    monkeypatch.setattr(sa, "create_engine", fake_create_engine)
+    store = create_store(f"postgresql://u:p@h/db_{uuid.uuid4().hex[:6]}")
+    store.store_context("sa adapter ops 123", session_id="sa", max_chunk_tokens=100)
+    assert conns and conns[-1].committed
+    store.conn.rollback()          # adapter rollback reachable
+    assert conns[-1].rolled
+    store.close()
+    assert conns[-1].closed
+
+
+def test_factory_mysql_normalization_without_any_driver(monkeypatch):
+    """No MySQLdb AND no pymysql: URL stays unnormalized, SA reports it."""
+    import sqlalchemy as sa
+
+    seen = {}
+
+    def fake_create_engine(url, **kw):
+        seen["url"] = url
+        return types.SimpleNamespace(connect=lambda: _FakeConn())
+
+    monkeypatch.setattr(sa, "create_engine", fake_create_engine)
+    monkeypatch.setitem(sys.modules, "MySQLdb", None)
+    monkeypatch.setitem(sys.modules, "pymysql", None)
+    from longloom.factory import _sql_connect_factory
+
+    _sql_connect_factory("mysql://u:p@h/db", "mysql")
+    assert seen["url"] == "mysql://u:p@h/db"      # unchanged — SA reports the gap
 
 
 def test_invalid_table_name_rejected():

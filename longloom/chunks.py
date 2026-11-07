@@ -62,7 +62,7 @@ def split_text(
     def _hard_split(segment: str) -> List[str]:
         """Token-count split for a single line that exceeds max_tokens."""
         if chr(10) in segment:  # defensive; caller passes single lines
-            return [segment]
+            return [segment]  # pragma: no cover
         out: List[str] = []
         remaining = segment
         while remaining:
@@ -76,7 +76,7 @@ def split_text(
                 steps += 1
             while guess < len(remaining) and counter(remaining[: guess + 1]) <= max_tokens:
                 guess += 1
-            if guess <= 0:
+            if guess <= 0:  # pragma: no cover — defensive; guess starts >= 1
                 guess = 1
             # Snap to a whitespace boundary so identifier tokens (IDs, numbers,
             # handles — anything without spaces) are never cut in half.

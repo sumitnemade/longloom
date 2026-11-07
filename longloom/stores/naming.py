@@ -28,7 +28,10 @@ LOGICAL_FIELDS = (
     "chunk_index", "total_chunks", "session_id", "content",
 )
 
-DEFAULT_COLUMNS: Dict[str, str] = {name: name for name in LOGICAL_FIELDS}
+DEFAULT_COLUMNS: Dict[str, str] = {
+    **{name: name for name in LOGICAL_FIELDS},
+    "namespace": "namespace",   # resolvable when namespace mode is on
+}
 
 _IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
@@ -47,7 +50,7 @@ class FieldMap:
             raise ValueError(f"invalid table/collection name: {self.table!r}")
         if not _IDENT_RE.match(self.namespace_field or ""):
             raise ValueError(f"invalid namespace field: {self.namespace_field!r}")
-        unknown = set(self.columns or {}) - set(LOGICAL_FIELDS)
+        unknown = set(self.columns or {}) - set(LOGICAL_FIELDS) - {"namespace"}
         if unknown:
             raise ValueError(
                 f"unknown logical field(s): {sorted(unknown)}. "
@@ -57,13 +60,21 @@ class FieldMap:
                 raise ValueError(f"invalid physical name for {logical!r}: {physical!r}")
 
     def col(self, logical: str) -> str:
-        """Physical name for a logical field."""
-        return (self.columns or {}).get(logical, DEFAULT_COLUMNS[logical])
+        """Physical name for a logical field.
+
+        The namespace column resolves to ``namespace_field`` unless explicitly
+        overridden via ``columns={"namespace": ...}`` — and only while
+        namespace mode is on."""
+        if logical == "namespace":
+            if self.namespace is None:
+                return DEFAULT_COLUMNS["namespace"]
+            return self.columns.get("namespace", self.namespace_field)
+        return self.columns.get(logical, DEFAULT_COLUMNS[logical])
 
     @property
     def all_columns(self) -> Dict[str, str]:
         """Logical → physical, in canonical order (namespace appended)."""
         out = {name: self.col(name) for name in LOGICAL_FIELDS}
         if self.namespace is not None:
-            out["namespace"] = self.namespace_field
+            out["namespace"] = self.col("namespace")
         return out

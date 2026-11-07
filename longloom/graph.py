@@ -215,7 +215,7 @@ def build_graph(
                 ) from exc
 
         missing = [i for i, r in enumerate(results) if r is None]
-        if missing:
+        if missing:  # pragma: no cover — defensive; todo covers every index
             raise RuntimeError(f"map phase produced no result for chunk index(es) {missing}")
         return {"map_results": results, "processing_log": log}
 

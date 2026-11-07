@@ -31,9 +31,11 @@ __all__ = ["SupabaseContextStore", "table_sql"]
 
 
 def table_sql(table: str = "context_chunks", columns: Optional[Dict[str, str]] = None,
-              namespace: Optional[str] = None) -> str:
+              namespace: Optional[str] = None,
+              namespace_field: str = "namespace") -> str:
     """DDL to create the (custom-named) chunks table in a Supabase/Postgres project."""
-    names = FieldMap(table=table, columns=columns or {}, namespace=namespace)
+    names = FieldMap(table=table, columns=columns or {}, namespace=namespace,
+                     namespace_field=namespace_field)
     c = names.all_columns
     defs = [
         f"{c['id']} TEXT PRIMARY KEY",

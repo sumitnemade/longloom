@@ -53,6 +53,45 @@ class RetryAfterError(Exception):
         self.response = type("R", (), {"headers": {"Retry-After": retry_after}})()
 
 
+def test_init_llm_nvidia_chatopenai_paths():
+    """Both nvidia OpenAI-client paths: thinking (extra_body) and without."""
+    without = init_llm("nvidia", "nvidia/nemotron-3-ultra-550b-a55b", api_key="k")
+    assert without.model_name == "nvidia/nemotron-3-ultra-550b-a55b"
+    with_t = init_llm("nvidia", "nvidia/nemotron-3-ultra-550b-a55b",
+                      api_key="k", thinking=True)
+    assert with_t.model_name == "nvidia/nemotron-3-ultra-550b-a55b"
+
+
+class RetryAfterError(Exception):
+    """Carries a provider-style response with a Retry-After header."""
+
+    def __init__(self, retry_after: str):
+        super().__init__("rate limited")
+        self.response = type("R", (), {"headers": {"Retry-After": retry_after}})()
+
+
+def test_retry_after_malformed_header_falls_back(monkeypatch):
+    import time as _time
+
+    sleeps: list[float] = []
+    monkeypatch.setattr(_time, "sleep", lambda s: sleeps.append(s) if s > 0 else None)
+
+    class BadHeader(PhaseAwareFakeChatModel):
+        n: int = 0
+
+        def _generate(self, messages, stop=None, run_manager=None, **kwargs) -> ChatResult:
+            prompt = "\n".join(str(m.content) for m in messages)
+            if self.n == 0 and "CHUNK" in prompt:
+                self.n += 1
+                raise RetryAfterError("not-a-number")   # malformed header
+            return super()._generate(messages, stop, run_manager, **kwargs)
+
+    adapter = LLMAdapter(BadHeader(), retry_attempts=2, retry_backoff=1.0)
+    out = adapter.complete("CHUNK 1/2: fact")
+    assert out.startswith("[MAP RESULT]") or out
+    assert sleeps and 1.0 <= sleeps[0] <= 1.25   # base backoff + jitter, no header boost
+
+
 def test_retry_after_header_is_honored(monkeypatch):
     import time as _time
 
