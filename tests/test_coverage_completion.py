@@ -184,6 +184,7 @@ def test_nvidia_headers_merge():
 # ===========================================================================
 
 def test_supabase_store_against_local_stub(tmp_path):
+    pytest.importorskip("supabase", reason="supabase-py not installed")
     sys.path.insert(0, str(ROOT / "tests"))
     from postgrest_stub import StubPostgREST
 
@@ -410,6 +411,7 @@ def test_factory_sa_adapter_commit_close(monkeypatch):
 
 
 def test_factory_json_netloc_and_mongodb_supabase_schemes():
+    pytest.importorskip("supabase", reason="supabase-py not installed")
     from longloom import JSONFileContextStore, create_store
 
     store = create_store("json://data")            # netloc form (line 71)
@@ -858,7 +860,10 @@ def test_mongo_empty_chunk_index_filter_and_list_sessions():
     from longloom import MongoContextStore
 
     client = MongoClient("mongodb://127.0.0.1:27017", serverSelectionTimeoutMS=1500)
-    client.admin.command("ping")
+    try:
+        client.admin.command("ping")
+    except Exception:
+        pytest.skip("MongoDB not reachable")
     db_name = f"longloom_cov_{uuid.uuid4().hex[:8]}"
     store = MongoContextStore(client_or_uri=client, db_name=db_name)
     try:

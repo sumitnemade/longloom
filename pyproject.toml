@@ -71,6 +71,7 @@ dev = [
     "psycopg2-binary>=2.9",
     "pymysql>=1.1",
     "langchain-openai>=0.2.0",
+    "supabase>=2.4",
 ]
 
 [project.urls]
