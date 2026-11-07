@@ -10,6 +10,9 @@ Requires a Supabase project and supabase-py:
 
 One-time setup — run the DDL from the Supabase SQL editor:
     python -c "from longloom.stores.supabase import table_sql; print(table_sql())"
+    Custom table/columns/namespace for an existing database?
+    -> every kwarg below works: table=, columns=, namespace=
+    -> see examples/17_embed_existing_database.py
 """
 import sys
 from pathlib import Path
