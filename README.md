@@ -45,17 +45,25 @@ preservation, over **any LLM** you already use and **any storage** you already r
 
 ## Install
 
-```bash
-pip install "longloom[all]"      # batteries included
-```
-
-or just the core (two dependencies: `langgraph` + `langchain-core`):
+From [PyPI](https://pypi.org/project/longloom/) — the usual way:
 
 ```bash
-pip install longloom
+pip install longloom                 # core: 2 dependencies only
+pip install "longloom[all]"          # batteries included (all providers + databases)
+pip install "longloom[tiktoken,nvidia]"   # pick exactly what you need
 ```
 
-Python ≥ 3.10 · Optional extras: `[tiktoken]` `[nvidia]` `[openai]` `[postgres]` `[mysql]` `[mongodb]` `[supabase]` `[databases]`
+Extras: `[tiktoken]` `[nvidia]` `[openai]` `[postgres]` `[mysql]` `[mongodb]` `[supabase]` `[databases]` `[dev]`
+
+Python ≥ 3.10.
+
+**From source** (contributors or pinned forks):
+
+```bash
+git clone https://github.com/sumitnemade/longloom && cd longloom
+pip install -e ".[dev]"              # editable install + test tooling
+pytest tests/ -v                     # 48 tests; network-dependent ones self-skip
+```
 
 ## 60-second quickstart
 
@@ -261,21 +269,6 @@ stays in whatever database *you* chose.
 **Why not just use a 200K-token model?** Cost, latency, and attention decay.
 Chunked extraction is cheaper per token and verifiably complete — and LongLoom
 works with *any* window, so you're never locked to a model generation.
-
-## Releasing (maintainers)
-
-```bash
-scripts/release.sh 1.2.0 --push     # tests → bump → changelog → tag → CI publishes to PyPI
-```
-
-One-time setup:
-1. Create the project on pypi.org, then **Trusted Publishing**: owner =
-   your GitHub username/org, repo = `longloom`, workflow = `release.yml`,
-   environment = `pypi` — no API tokens live in the repository.
-2. Push the tag (`--push`) — the release workflow builds, checks metadata,
-   verifies tag↔version, publishes, and attaches artifacts to a GitHub release.
-3. Optional local path: `scripts/release.sh 1.2.0 --publish` with
-   `PYPI_TOKEN` set (TestPyPI: `--testpypi` with `TESTPYPI_TOKEN`).
 
 ## Contributing
 
