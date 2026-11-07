@@ -38,7 +38,7 @@ from .stores import (
 )
 from .tokens import EstimateCounter, TiktokenCounter, TokenCounter, default_counter
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 
 __all__ = [
     # processor / graph

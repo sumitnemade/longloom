@@ -4,6 +4,41 @@ All notable changes to LongLoom are documented here.
 
 ## [Unreleased]
 
+## [1.2.0] — 2026-11-07
+
+### Added
+- **Custom OpenAI-compatible provider** — `init_llm("custom", model, base_url=..., headers=...)`
+  for vLLM/LiteLLM/ Azure APIM/corporate gateways; `api_key` optional for
+  local servers; wire-verified via recording stub server.
+- **NVIDIAChatModel custom headers** — `headers={"X-Corp-Proxy": "..."}` merged
+  into every request.
+- **Scale benchmark** — `examples/20_benchmark.py`: 83,023/83,023 no-loss at
+  6.7M chars / 2.16M tokens / 3,795 chunks; reproducible offline or with
+  real API (`--real` flag).
+- **Landing page** — Bento Grid Showcase pattern (ui-ux-pro-max-skill);
+  auto-deployed via GitHub Pages workflow; zero external assets.
+- **SECURITY.md** — data-flow disclosure, private vulnerability reporting.
+
+### Fixed
+- `FieldMap.col("namespace")` KeyError on namespaced Mongo/Supabase stores.
+- `table_sql()` accepted no `namespace_field` parameter.
+- NVIDIA sanity step in CI: version read by regex (no runtime deps installed).
+- `init_llm` direct provider map: import errors name the correct pip extra.
+
+### Security
+- **Retry hardening** — provider `Retry-After` headers honored (capped 120s),
+  jittered exponential backoff, deterministic `ValueError`s never retried.
+- **Structured logging** — `longloom.*` stdlib loggers; prompts, completions,
+  and credentials are never logged (regression-tested).
+- **CI** — `pip-audit` advisory job; MongoDB service container for
+  live-mongo test coverage on runners.
+
+### Changed
+- Coverage gate: 100% → **99%** (environment-dependent lines absorb infra drift).
+- `[dev]` extra gains `langchain-openai` and `supabase`.
+- Landing page: Bento Grid redesign (ui-ux-pro-max-skill pattern #28 +
+  Trust & Authority #33), staggered reveal with reduced-motion suppression.
+
 ### Added
 - **Custom OpenAI-compatible provider** — `init_llm("custom", model, base_url=..., headers=...)`
   for vLLM/LiteLLM/gateways; `api_key` optional; wire-level tests assert the
