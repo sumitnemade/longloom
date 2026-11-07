@@ -2,6 +2,14 @@
 
 All notable changes to LongLoom are documented here.
 
+## [Unreleased]
+
+### Added
+- **Custom OpenAI-compatible provider** — `init_llm("custom", model, base_url=..., headers=...)`
+  for vLLM/LiteLLM/gateways; `api_key` optional; wire-level tests assert the
+  custom base_url and headers arrive on every request. `NVIDIAChatModel` also
+  accepts extra `headers=`.
+
 ## [1.1.0] — 2026-11-07
 
 ### Added

@@ -135,6 +135,10 @@ def init_llm(
     """Build a chat model from a provider name — convenience helper.
 
     * ``"nvidia"`` → NVIDIA-hosted models (OpenAI-compatible endpoint).
+    * ``"custom"`` / ``"openai-compatible"`` / ``"vllm"`` → any OpenAI-
+      compatible endpoint: pass ``base_url=...`` and ``headers={...}``
+      (vLLM, LiteLLM, Azure APIM, corporate gateways, Ollama's OpenAI mode).
+      ``api_key`` is optional — local servers often need none.
     * any other provider string is forwarded to LangChain's
       ``init_chat_model`` when the matching integration is installed
       (e.g. ``"openai"``, ``"anthropic"``, ``"groq"``, ``"ollama"``).
@@ -144,12 +148,28 @@ def init_llm(
     in). ``ollama`` needs no key.
     """
     provider = provider.lower()
-    needs_key = provider not in ("ollama",)
+    needs_key = provider not in ("ollama", "custom", "openai-compatible", "vllm")
     if needs_key and not api_key:
         raise ValueError(
             f"api_key=... is required for provider {provider!r}. LongLoom "
             "never reads keys from the environment — read the key in your "
             "application and pass it explicitly.")
+    if provider in ("custom", "openai-compatible", "vllm"):
+        try:
+            from langchain_openai import ChatOpenAI
+        except ImportError as exc:
+            raise ImportError(
+                "The custom OpenAI-compatible provider needs langchain-openai: "
+                "pip install 'longloom[openai]'"
+            ) from exc
+        headers = kwargs.pop("headers", None)
+        return ChatOpenAI(
+            model=model or "default",
+            api_key=api_key or "not-needed",   # local endpoints may need no key
+            base_url=kwargs.pop("base_url", None) or "http://127.0.0.1:8000/v1",
+            **({"default_headers": headers} if headers else {}),
+            **kwargs,
+        )
     if provider == "nvidia":
         resolved_key = api_key
 
