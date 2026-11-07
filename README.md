@@ -60,6 +60,7 @@ Python ≥ 3.10 · Optional extras: `[tiktoken]` `[nvidia]` `[openai]` `[postgre
 ## 60-second quickstart
 
 ```python
+import os
 from longloom import MapReduceProcessor, SQLiteContextStore, init_llm
 
 processor = MapReduceProcessor(
@@ -218,7 +219,7 @@ identical session IDs. See `examples/17_embed_existing_database.py`.
 git clone https://github.com/sumitnemade/longloom && cd longloom
 pip install -e ".[dev]"
 export NVIDIA_API_KEY=...        # or OPENAI_API_KEY=...
-python examples/run_all.py       # 16 examples; skips gracefully what's missing
+python examples/run_all.py       # 17 examples; skips gracefully what's missing
 ```
 
 | # | Example | One-liner |
@@ -233,6 +234,7 @@ python examples/run_all.py       # 16 examples; skips gracefully what's missing
 | 14 | **NVIDIA × every database** | real Nemotron over 8 backends |
 | 15 | **OpenAI × every database** | real GPT over 8 backends |
 | 16 | **no-loss extraction** | 41/41 facts on a hostile document mix |
+| 17 | **embed in existing database** | your table, your columns, namespaces |
 
 ## Test it yourself
 

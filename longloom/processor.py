@@ -2,10 +2,12 @@
 
 Usage with any LLM and any storage::
 
-    from longloom import MapReduceProcessor, SQLiteContextStore
+    import os
+    from longloom import MapReduceProcessor, SQLiteContextStore, init_llm
 
     processor = MapReduceProcessor(
-        llm=init_llm("openai", "gpt-4o-mini"),      # or any BaseChatModel / callable
+        llm=init_llm("openai", "gpt-4o-mini",       # or any BaseChatModel / callable
+                     api_key=os.environ["OPENAI_API_KEY"]),
         store=SQLiteContextStore("ctx.db"),          # or InMemory / JSONFile / your own
     )
     result = processor.process(content, task="Summarize", session_id="doc-1")
