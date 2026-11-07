@@ -110,7 +110,7 @@
   <p class="lead">Every claim below is backed by a runnable example or a test in the repository.</p>
   <div class="grid">
     <div class="card"><h3><span class="ico">🔌</span>Any LLM, any storage</h3>
-      <p>One seam each: <code>init_llm</code> maps 8 providers — or bring a bare
+      <p>One seam each: <code>init_llm</code> maps 9 provider integrations + custom endpoints — or bring a bare
       <code>str → str</code> function. Memory → SQLite → Postgres → MySQL →
       MongoDB → Supabase, or subclass one ABC with four methods.</p></div>
     <div class="card"><h3><span class="ico">🧵</span>Measured no-loss mode</h3>
@@ -119,7 +119,7 @@
       2–10%.</p></div>
     <div class="card"><h3><span class="ico">⚡</span>Parallel map</h3>
       <p><code>max_workers=8</code> fans the map phase across a thread pool with
-      shared rate-limit pacing. <b>Measured 4×</b> on an 8-chunk document.</p></div>
+      shared rate-limit pacing. <b>Measured ≈4×</b> on an 8-chunk document.</p></div>
     <div class="card"><h3><span class="ico">🔁</span>Checkpoint / resume</h3>
       <p>Map results are checkpointed per chunk. <code>resume=True</code> after a
       crash re-maps <b>only the missing chunks</b> — nothing twice.</p></div>
@@ -165,7 +165,7 @@ result = processor.process(annual_report, task=<span class="p">"Summarize the ke
   <div class="stats" style="margin-top:40px">
     <div class="stat"><div class="n">41/41</div><div class="l">facts preserved —<br>no-loss mode</div></div>
     <div class="stat"><div class="n">8 × 2</div><div class="l">storage targets × real LLM<br>providers — matrix verified</div></div>
-    <div class="stat"><div class="n">4×</div><div class="l">parallel map<br>speedup, measured</div></div>
+    <div class="stat"><div class="n">≈4×</div><div class="l">parallel map<br>speedup, measured</div></div>
     <div class="stat"><div class="n">88</div><div class="l">tests, incl. real-API<br>and real-database runs</div></div>
   </div>
 </div></section>
