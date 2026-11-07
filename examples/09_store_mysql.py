@@ -6,6 +6,9 @@ Requires a MySQL server and either SQLAlchemy or PyMySQL installed:
 
     export LONGCTX_MYSQL_DSN="mysql://user:password@host:3306/longloom"
     python examples/09_store_mysql.py
+    Custom table/columns/namespace for an existing database?
+    -> every kwarg below works: table=, columns=, namespace=
+    -> see examples/17_embed_existing_database.py
 """
 import sys
 from pathlib import Path

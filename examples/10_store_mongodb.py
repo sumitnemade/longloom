@@ -9,6 +9,9 @@ Requires a MongoDB server and pymongo:
 
 Runs out of the box against a local default MongoDB (127.0.0.1:27017).
 Server-side regex search and $group aggregation are used.
+    Custom table/columns/namespace for an existing database?
+    -> every kwarg below works: table=, columns=, namespace=
+    -> see examples/17_embed_existing_database.py
 """
 import sys
 from pathlib import Path

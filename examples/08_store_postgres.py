@@ -6,6 +6,9 @@ Requires a PostgreSQL server and either SQLAlchemy or psycopg2 installed:
 
     export LONGCTX_PG_DSN="postgresql://user:password@host:5432/longloom"
     python examples/08_store_postgres.py
+    Custom table/columns/namespace for an existing database?
+    -> every kwarg below works: table=, columns=, namespace=
+    -> see examples/17_embed_existing_database.py
 """
 import sys
 from pathlib import Path
