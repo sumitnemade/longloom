@@ -25,6 +25,7 @@ Parallelism, resume, observability and hygiene::
 from __future__ import annotations
 
 import asyncio
+import logging
 import uuid
 from typing import Any, Callable, Dict, List, Optional
 
@@ -32,6 +33,8 @@ from .chunks import ContextChunk
 from .graph import MapReduceState, build_graph
 from .llm import LLMAdapter, LLMLike
 from .prompts import DEFAULT_PROMPTS, PromptTemplates, render_prompt
+
+logger = logging.getLogger("longloom.processor")
 from .stores.base import BaseContextStore
 from .stores.memory import InMemoryContextStore
 from .tokens import TokenCounter, default_counter
@@ -101,6 +104,8 @@ class MapReduceProcessor:
         session_id = session_id or f"session_{uuid.uuid4().hex[:8]}"
         run_sid = f"{session_id}::run"
 
+        logger.info("run started (session=%s, workers=%d, resume=%s)",
+                    session_id, self.max_workers, resume)
         initial: Dict[str, Any] = {
             "input_content": content,
             "session_id": session_id,
@@ -119,6 +124,10 @@ class MapReduceProcessor:
         except Exception:
             pass
 
+        logger.info("run completed (session=%s, chunks=%d, input_tokens=%d, repairs=%d)",
+                    session_id, len(result.get("chunks", [])),
+                    result.get("total_input_tokens", 0),
+                    result.get("repair_attempts", 0))
         sources = [
             {"chunk_index": c.chunk_index, "chunk_id": c.id,
              "token_count": c.token_count, "preview": c.content[:120]}

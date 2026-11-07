@@ -56,6 +56,8 @@ pip install "longloom[tiktoken,nvidia]"   # pick exactly what you need
 Extras: `[tiktoken]` `[nvidia]` `[openai]` `[postgres]` `[mysql]` `[mongodb]` `[supabase]` `[databases]` `[dev]`
 
 Python ≥ 3.10.
+**Tested with**: Python 3.10–3.13 · `langgraph` 1.2.x · `langchain-core` 1.7.x ·
+NVIDIA Nemotron-3-Ultra and OpenAI GPT-4o-mini (real-API test suite).
 
 **From source** (contributors or pinned forks):
 
@@ -290,8 +292,15 @@ processor. Pacing and retries are shared and lock-guarded across workers.
 **A run crashed halfway — do I start over?** No: `process(..., resume=True)`
 reuses the checkpointed map results and maps only the missing chunks.
 
-**Is my data sent anywhere?** Only to the LLM provider you configure. Storage
-stays in whatever database *you* chose.
+**Is my data sent anywhere?** Only to the LLM provider you configure — no
+telemetry, no phone-home. Document content goes to that endpoint inside
+pipeline prompts; chunks live in whatever database *you* chose; keys live in
+memory only (never logged, never read from the environment). See
+[SECURITY.md](SECURITY.md) for the full data-flow review.
+
+**How do I handle PII?** Pass `scrubber=my_redactor` — content is rewritten
+before anything is stored or mapped. For retention,
+`store.delete_sessions_older_than(days)` sweeps old sessions on every backend.
 
 **Why not just use a 200K-token model?** Cost, latency, and attention decay.
 Chunked extraction is cheaper per token and verifiably complete — and LongLoom

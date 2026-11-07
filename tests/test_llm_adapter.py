@@ -43,7 +43,95 @@ def test_init_llm_nvidia_requires_explicit_key():
 
     with pytest.raises(ValueError, match="never reads keys from the environment"):
         init_llm("nvidia", "nvidia/nemotron-3-ultra-550b-a55b", api_key=None)
+
+
+class RetryAfterError(Exception):
+    """Carries a provider-style response with a Retry-After header."""
+
+    def __init__(self, retry_after: str):
+        super().__init__("rate limited")
+        self.response = type("R", (), {"headers": {"Retry-After": retry_after}})()
+
+
+def test_retry_after_header_is_honored(monkeypatch):
+    import time as _time
+
+    sleeps: list[float] = []
+    monkeypatch.setattr(_time, "sleep", lambda s: sleeps.append(s))
+
+    class RateLimitedOnce(PhaseAwareFakeChatModel):
+        n: int = 0
+
+        def _generate(self, messages, stop=None, run_manager=None, **kwargs) -> ChatResult:
+            prompt = "\n".join(str(m.content) for m in messages)
+            if self.n == 0 and "CHUNK" in prompt:
+                self.n += 1
+                raise RetryAfterError("7")   # provider says: wait 7 seconds
+            return super()._generate(messages, stop, run_manager, **kwargs)
+
+    adapter = LLMAdapter(RateLimitedOnce(), retry_attempts=3, retry_backoff=0.5)
+    out = adapter.complete("CHUNK 1/2: fact 42")
+    assert out == RateLimitedOnce().map_response or out.startswith("[MAP RESULT]")
+    assert sleeps and sleeps[0] >= 7.0          # Retry-After overrides base backoff
+    assert sleeps[0] <= 120.0                    # ...but within the hard cap
+
+
+def test_retry_after_is_capped(monkeypatch):
+    import time as _time
+
+    sleeps: list[float] = []
+    monkeypatch.setattr(_time, "sleep", lambda s: sleeps.append(s))
+
+    class AlwaysRateLimited(PhaseAwareFakeChatModel):
+        def _generate(self, messages, stop=None, run_manager=None, **kwargs) -> ChatResult:
+            raise RetryAfterError("5000")        # absurd provider value
+
+    adapter = LLMAdapter(AlwaysRateLimited(), retry_attempts=1, retry_backoff=1.0)
+    with pytest.raises(RetryAfterError):
+        adapter.complete("CHUNK 1/1: x")
+    assert sleeps and sleeps[0] <= 120.0         # capped, never 5000s
+
+
+def test_retry_backoff_is_jittered_but_bounded(monkeypatch):
+    import random as _random
+    import time as _time
+
+    sleeps: list[float] = []
+    monkeypatch.setattr(_time, "sleep", lambda s: sleeps.append(s))
+    monkeypatch.setattr(_random, "uniform", lambda a, b: b)  # worst case: +25%
+
+    class AlwaysDown(PhaseAwareFakeChatModel):
+        def _generate(self, messages, stop=None, run_manager=None, **kwargs) -> ChatResult:
+            raise ConnectionError("down")
+
+    adapter = LLMAdapter(AlwaysDown(), retry_attempts=3, retry_backoff=2.0, jitter=True)
+    with pytest.raises(ConnectionError):
+        adapter.complete("CHUNK 1/1: x")
+    # base 2,4,8 with +25% jitter and the 120s cap
+    assert sleeps[0] == pytest.approx(2.5) and sleeps[1] == pytest.approx(5.0)
+    assert sleeps[2] == pytest.approx(10.0)
+
+
+def test_logs_never_contain_prompt_content(monkeypatch, caplog):
+    import logging as _logging
+    import time as _time
+
+    monkeypatch.setattr(_time, "sleep", lambda s: None)
+    caplog.set_level(_logging.DEBUG, logger="longloom")
+
+    class AlwaysDown(PhaseAwareFakeChatModel):
+        def _generate(self, messages, stop=None, run_manager=None, **kwargs) -> ChatResult:
+            raise ConnectionError("down")
+
+    adapter = LLMAdapter(AlwaysDown(), retry_attempts=2, retry_backoff=0.0)
+    with pytest.raises(ConnectionError):
+        adapter.complete("PROMPT-SECRET-should-never-be-logged-42")
+
+    assert "PROMPT-SECRET-should-never-be-logged-42" not in caplog.text
+    assert any("LLM call failed" in r.message for r in caplog.records)
     # an explicitly passed key is used verbatim, even if env vars also exist
+    from longloom.nvidia import NVIDIAChatModel
+
     native = NVIDIAChatModel(model_name="nvidia/nemotron-3-ultra-550b-a55b",
                              api_key="passed-explicitly")
     assert native.api_key == "passed-explicitly"

@@ -12,6 +12,17 @@ All notable changes to LongLoom are documented here.
 
 ## [1.1.0] — 2026-11-07
 
+### Security & operations
+- **Retry hardening** — provider `Retry-After` headers honored (capped at
+  120s), jittered exponential backoff to decorrelate parallel workers,
+  deterministic `ValueError`s never retried.
+- **Structured logging** — `longloom.*` stdlib loggers emit run lifecycle
+  (INFO) and retry diagnostics (WARNING); prompts, completions and
+  credentials are never logged (regression-tested).
+- **SECURITY.md** — data-flow disclosure, reporting process, security
+  features, supply-chain notes.
+- **CI** — `pip-audit` advisory job against the installed dependency set.
+
 ### Added
 - **PyPI live** — `longloom 1.0.0` published via Trusted Publishing;
   `pip install longloom` verified from a clean venv

@@ -10,6 +10,8 @@ The workflow never talks to a vendor SDK directly — it goes through
 """
 from __future__ import annotations
 
+import logging
+import random
 import threading
 from typing import Callable, Optional, Union
 
@@ -17,6 +19,12 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage
 
 __all__ = ["LLMLike", "LLMAdapter", "init_llm", "DEFAULT_NVIDIA_MODEL"]
+
+logger = logging.getLogger("longloom.llm")
+
+#: Upper bound for any single retry sleep (enterprise runs must surface
+#: persistent failures, not hang for minutes between attempts).
+MAX_RETRY_SLEEP = 120.0
 
 LLMLike = Union[BaseChatModel, Callable[[str], str]]
 
@@ -36,7 +44,7 @@ class LLMAdapter:
     """
 
     def __init__(self, llm: LLMLike, retry_attempts: int = 4, retry_backoff: float = 3.0,
-                 min_interval: float = 0.0):
+                 min_interval: float = 0.0, jitter: bool = True):
         if isinstance(llm, BaseChatModel):
             self._model: Optional[BaseChatModel] = llm
             self._fn: Optional[Callable[[str], str]] = None
@@ -52,6 +60,7 @@ class LLMAdapter:
         self.retry_attempts = max(0, retry_attempts)
         self.retry_backoff = max(0.0, retry_backoff)
         self.min_interval = max(0.0, min_interval)
+        self.jitter = jitter            # decorrelates parallel workers' retries
         self._last_call = 0.0
         self._lock = threading.Lock()   # pacing/retry state is shared across worker threads
 
@@ -64,6 +73,26 @@ class LLMAdapter:
         tu = rm.get("token_usage")
         if isinstance(tu, dict):
             return {k: tu.get(k) for k in ("prompt_tokens", "completion_tokens", "total_tokens")}
+        return None
+
+    @staticmethod
+    def _retry_after(exc: Exception) -> Optional[float]:
+        """Honor a provider's Retry-After header when the exception carries a
+        response (requests/httpx-based errors do)."""
+        seen = set()
+        cur: Optional[BaseException] = exc
+        while cur is not None and id(cur) not in seen:
+            seen.add(id(cur))
+            response = getattr(cur, "response", None)
+            headers = getattr(response, "headers", None)
+            if headers:
+                raw = headers.get("retry-after") or headers.get("Retry-After")
+                if raw:
+                    try:
+                        return min(float(raw), MAX_RETRY_SLEEP)
+                    except ValueError:
+                        return None
+            cur = cur.__cause__ or cur.__context__
         return None
 
     def _once(self, prompt: str) -> "tuple[str, Dict[str, Any]]":
@@ -97,6 +126,8 @@ class LLMAdapter:
                     self._last_call = time.time()
                 meta.update({"backend": self.backend, "attempt": attempt,
                              "duration_ms": int((time.time() - start) * 1000)})
+                logger.debug("LLM call ok (backend=%s, attempt=%d, duration_ms=%d)",
+                             self.backend, attempt, meta["duration_ms"])
                 return text, meta
             except Exception as exc:  # transient API failures included
                 last_exc = exc
@@ -105,7 +136,18 @@ class LLMAdapter:
                 if isinstance(exc, ValueError):
                     raise  # deterministic input errors: retrying is pointless
                 if attempt < self.retry_attempts:
-                    time.sleep(self.retry_backoff * (2 ** attempt))
+                    base = self.retry_backoff * (2 ** attempt)
+                    if self.jitter:  # decorrelate parallel workers (thundering herd)
+                        base *= 1.0 + random.uniform(0, 0.25)
+                    retry_after = self._retry_after(exc)
+                    delay = min(max(base, retry_after or 0.0), MAX_RETRY_SLEEP)
+                    logger.warning(
+                        "LLM call failed (attempt %d/%d, backend=%s); retrying in %.1fs: %s",
+                        attempt + 1, self.retry_attempts + 1, self.backend, delay,
+                        type(exc).__name__)
+                    time.sleep(delay)
+        logger.error("LLM call failed after %d attempts (backend=%s): %s",
+                     self.retry_attempts + 1, self.backend, type(last_exc).__name__)
         assert last_exc is not None
         raise last_exc
 

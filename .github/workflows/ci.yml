@@ -23,6 +23,22 @@ jobs:
       - name: Test (network-dependent tests self-skip)
         run: pytest tests/ -q
 
+  security:
+    name: pip-audit (dependencies)
+    runs-on: ubuntu-latest
+    continue-on-error: true   # advisory: surfaces known CVEs without blocking docs-only PRs
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install package + deps
+        run: pip install -e .
+      - name: Audit
+        run: |
+          pip install pip-audit
+          pip-audit --strict
+
   build:
     name: build sdist + wheel
     runs-on: ubuntu-latest
