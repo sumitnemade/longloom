@@ -1,0 +1,85 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "longloom"
+dynamic = ["version"]
+description = "Weave documents of any length through LLM map/merge/repair — any LLM, any storage, measured no-loss"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "LongLoom Maintainers" }]
+keywords = [
+    "llm", "long-context", "map-reduce", "langgraph", "chunking",
+    "rag", "summarization", "nvidia", "openai", "postgresql", "mongodb",
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Text Processing :: General",
+    "Typing :: Typed",
+]
+dependencies = [
+    "langgraph>=0.2.0",
+    "langchain-core>=0.3.0",
+]
+
+[project.optional-dependencies]
+tiktoken = ["tiktoken>=0.7.0"]
+nvidia = ["requests>=2.31"]
+openai = ["langchain-openai>=0.2.0"]
+sql = ["sqlalchemy>=2.0"]
+postgres = ["sqlalchemy>=2.0", "psycopg2-binary>=2.9"]
+mysql = ["sqlalchemy>=2.0", "pymysql>=1.1"]
+mongodb = ["pymongo>=4.6"]
+supabase = ["supabase>=2.4"]
+databases = [
+    "sqlalchemy>=2.0",
+    "psycopg2-binary>=2.9",
+    "pymysql>=1.1",
+    "pymongo>=4.6",
+    "supabase>=2.4",
+]
+all = [
+    "tiktoken>=0.7.0",
+    "requests>=2.31",
+    "langchain-openai>=0.2.0",
+    "sqlalchemy>=2.0",
+    "psycopg2-binary>=2.9",
+    "pymysql>=1.1",
+    "pymongo>=4.6",
+]
+dev = [
+    "pytest>=8.0",
+    "tiktoken>=0.7.0",
+    "pymongo>=4.6",
+    "sqlalchemy>=2.0",
+    "psycopg2-binary>=2.9",
+    "pymysql>=1.1",
+]
+
+[project.urls]
+Homepage = "https://github.com/sumitnemade/longloom"
+Documentation = "https://github.com/sumitnemade/longloom#readme"
+Changelog = "https://github.com/sumitnemade/longloom/blob/main/CHANGELOG.md"
+
+[tool.setuptools.packages.find]
+include = ["longloom*"]
+
+[tool.setuptools.package-data]
+longloom = ["py.typed"]
+
+[tool.setuptools.dynamic]
+version = { attr = "longloom.__version__" }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
