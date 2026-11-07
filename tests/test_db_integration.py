@@ -148,7 +148,9 @@ def test_supabase_contract():
             "service; point these at a test project to run for real"
         )
     try:
-        store = create_store(os.environ["SUPABASE_URL"], table=f"longloom_{_unique_dsn_suffix()}")
+        store = create_store(os.environ["SUPABASE_URL"],
+                             key=os.environ["SUPABASE_KEY"],
+                             table=f"longloom_{_unique_dsn_suffix()}")
     except ImportError:
         pytest.skip("supabase-py not installed: pip install 'longloom[supabase]'")
     run_store_contract(store, "supabase")

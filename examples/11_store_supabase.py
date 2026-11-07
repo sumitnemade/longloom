@@ -30,7 +30,7 @@ def main() -> int:
           bool(url and key))
 
     processor = MapReduceProcessor(
-        llm=DemoLLM(), store=create_store(url),
+        llm=DemoLLM(), store=create_store(url, key=key),
         max_chunk_tokens=600, max_context_tokens=8192,
     )
     result = processor.process(SAMPLE_DOC, task="Summarize key themes",

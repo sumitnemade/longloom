@@ -37,10 +37,16 @@ def test_render_prompt_is_brace_safe():
     assert "Task: t" in out
 
 
-def test_init_llm_nvidia_requires_key(monkeypatch):
-    monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
-    monkeypatch.delenv("NEMOTRON_API_KEY", raising=False)
+def test_init_llm_nvidia_requires_explicit_key():
+    """LongLoom never reads keys from the environment — pass api_key=... ."""
     from longloom.nvidia import NVIDIAChatModel
 
-    with pytest.raises(ValueError, match="NVIDIA API key"):
-        init_llm("nvidia", "nvidia/nemotron-3-ultra")
+    with pytest.raises(ValueError, match="never reads keys from the environment"):
+        init_llm("nvidia", "nvidia/nemotron-3-ultra-550b-a55b", api_key=None)
+    # an explicitly passed key is used verbatim, even if env vars also exist
+    native = NVIDIAChatModel(model_name="nvidia/nemotron-3-ultra-550b-a55b",
+                             api_key="passed-explicitly")
+    assert native.api_key == "passed-explicitly"
+    via_helper = init_llm("nvidia", "nvidia/nemotron-3-ultra-550b-a55b",
+                          api_key="passed-explicitly")
+    assert via_helper is not None  # helper accepts the explicit key

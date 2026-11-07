@@ -8,7 +8,6 @@ prefers that instead.
 from __future__ import annotations
 
 import json
-import os
 from typing import Any, Dict, Iterator, List, Optional
 
 from langchain_core.callbacks import CallbackManagerForLLMRun
@@ -49,16 +48,10 @@ class NVIDIAChatModel(BaseChatModel):
     def __init__(self, **kwargs: Any):
         super().__init__(**kwargs)
         if not self.api_key:
-            self.api_key = (
-                os.environ.get("NVIDIA_API_KEY")
-                or os.environ.get("NVIDIA_NIM_API_KEY")
-                or os.environ.get("NEMOTRON_API_KEY")
-            )
-        if not self.api_key:
             raise ValueError(
-                "NVIDIA API key not found. Set NVIDIA_API_KEY (get one at "
-                "https://integrate.api.nvidia.com/) or pass api_key=... directly."
-            )
+                "NVIDIA API key required — pass api_key=... explicitly. "
+                "LongLoom never reads keys from the environment. "
+                "(Get a key at https://integrate.api.nvidia.com/)")
 
     @property
     def _llm_type(self) -> str:

@@ -34,7 +34,9 @@ def main() -> int:
 
     from longloom import LLMAdapter
     llm = LLMAdapter(
-        init_llm("nvidia", MODEL, temperature=0.2, max_tokens=1024, thinking=False),
+        init_llm("nvidia", MODEL,
+                 api_key=os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVIDIA_NIM_API_KEY"),
+                 temperature=0.2, max_tokens=1024, thinking=False),
         min_interval=1.0,      # pace calls across the 8-backend matrix
         retry_attempts=5, retry_backoff=4.0,   # survive provider 429 windows
     )

@@ -91,9 +91,9 @@ def candidate_stores():
         from postgrest_stub import StubPostgREST  # in tests/
 
         stub = StubPostgREST(port=8905).start()
-        os.environ.setdefault("SUPABASE_KEY", "local-stub-key")
         store = _make(lambda: _create_store(
-            f"supabase://127.0.0.1:8905", table=f"longloom_mx_{uuid.uuid4().hex[:6]}"))
+            "supabase://127.0.0.1:8905", table=f"longloom_mx_{uuid.uuid4().hex[:6]}",
+            key="local-stub-key"))
         store.get_session_info("probe")
         store._stub = stub
         return store

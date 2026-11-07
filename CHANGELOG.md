@@ -5,6 +5,9 @@ All notable changes to LongLoom are documented here.
 ## [Unreleased]
 
 ### Added
+- **Explicit credentials** — API keys and Supabase url/key are constructor
+  arguments only; the library never reads `os.environ` for secrets. Keys are
+  required for every hosted provider (`ollama` exempt).
 - **Embedding in existing databases** — every SQL/MongoDB/Supabase backend now
   accepts `columns` (logical → physical field names), `table` overrides, and a
   `namespace` discriminator (+ `namespace_field`) so multiple applications can

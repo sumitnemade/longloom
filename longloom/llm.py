@@ -10,7 +10,6 @@ The workflow never talks to a vendor SDK directly — it goes through
 """
 from __future__ import annotations
 
-import os
 from typing import Callable, Optional, Union
 
 from langchain_core.language_models import BaseChatModel
@@ -102,15 +101,20 @@ def init_llm(
     * any other provider string is forwarded to LangChain's
       ``init_chat_model`` when the matching integration is installed
       (e.g. ``"openai"``, ``"anthropic"``, ``"groq"``, ``"ollama"``).
+
+    LongLoom never reads API keys from the environment: ``api_key`` is
+    required for every hosted provider (read it in *your* app and pass it
+    in). ``ollama`` needs no key.
     """
     provider = provider.lower()
+    needs_key = provider not in ("ollama",)
+    if needs_key and not api_key:
+        raise ValueError(
+            f"api_key=... is required for provider {provider!r}. LongLoom "
+            "never reads keys from the environment — read the key in your "
+            "application and pass it explicitly.")
     if provider == "nvidia":
-        resolved_key = api_key or os.environ.get("NVIDIA_API_KEY") or os.environ.get("NEMOTRON_API_KEY")
-        if resolved_key is None:
-            # Raise the friendly, NVIDIA-specific error.
-            from .nvidia import NVIDIAChatModel
-
-            NVIDIAChatModel(model_name=model or DEFAULT_NVIDIA_MODEL)  # raises ValueError
+        resolved_key = api_key
 
         # `thinking` is a Nemotron-specific extension the OpenAI client path
         # can't express cleanly — route to our native backend when requested.

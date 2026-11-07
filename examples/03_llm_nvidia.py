@@ -24,6 +24,7 @@ def main() -> int:
 
     llm = init_llm("nvidia", os.environ.get(
         "NVIDIA_MODEL", "nvidia/nemotron-3-ultra-550b-a55b"),
+        api_key=os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVIDIA_NIM_API_KEY"),
         temperature=0.2, max_tokens=1024, thinking=False,
     )
     processor = MapReduceProcessor(
