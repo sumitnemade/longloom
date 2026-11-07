@@ -2,6 +2,18 @@
 
 All notable changes to LongLoom are documented here.
 
+## [Unreleased]
+
+### Added
+- **Embedding in existing databases** — every SQL/MongoDB/Supabase backend now
+  accepts `columns` (logical → physical field names), `table` overrides, and a
+  `namespace` discriminator (+ `namespace_field`) so multiple applications can
+  share one table/collection safely; `init_schema=False` for user-owned
+  migrations; `SqlContextStore.ddl()` and `table_sql(...)` generate
+  schema-matching DDL. SQLite store rebased onto the generic SQL backend
+  (feature parity). Validated by `tests/test_embed_existing.py` and
+  `examples/17_embed_existing_database.py`.
+
 ## [1.0.0] — 2026-11-06
 
 First production release.

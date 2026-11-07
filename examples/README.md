@@ -30,6 +30,7 @@ key/server isn't available — so the whole suite is always safe to run.
 | 14 | [NVIDIA × ALL databases](14_nvidia_all_databases.py) | **real NVIDIA** | **every** store | `NVIDIA_API_KEY` (+ servers) | ✅ runs |
 | 15 | [OpenAI × ALL databases](15_openai_all_databases.py) | **real OpenAI** (gpt-4o-mini, low-context config) | **every** store | `OPENAI_API_KEY` (+ servers) | ✅ runs |
 | 16 | [unstructured no-loss](16_unstructured_no_loss.py) | **real LLM** (NVIDIA or OpenAI) | SQLite | either API key | ✅ runs (100% preservation) |
+| 17 | [embed in existing database](17_embed_existing_database.py) | demo LLM | **your** table/columns | nothing (SQLite) | ✅ runs |
 
 
 Example 16 feeds a messy document (logs, JSON, email thread, ASCII table,
