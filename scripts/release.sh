@@ -45,8 +45,12 @@ say "▸ running offline test suite" "$GREEN"
 run python -m pytest tests/ -q
 
 say "▸ bumping longloom/__init__.py → $VERSION" "$GREEN"
-[[ -n "$DRY" ]] || sed -i "s/^__version__ = \".*\"/__version__ = \"$VERSION\"/" longloom/__init__.py
-grep -q "^__version__ = \"$VERSION\"" longloom/__init__.py || { say "✗ version bump failed" "$RED"; exit 1; }
+if [[ -n "$DRY" ]]; then
+  say "  [dry-run] sed longloom/__init__.py → __version__ = \"$VERSION\"" "$YELLOW"
+else
+  sed -i "s/^__version__ = \".*\"/__version__ = \"$VERSION\"/" longloom/__init__.py
+  grep -q "^__version__ = \"$VERSION\"" longloom/__init__.py || { say "✗ version bump failed" "$RED"; exit 1; }
+fi
 
 say "▸ moving CHANGELOG 'Unreleased' → [$VERSION]" "$GREEN"
 if [[ -z "$DRY" ]]; then
