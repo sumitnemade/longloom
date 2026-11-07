@@ -6,11 +6,14 @@ knowledge of any vendor or storage engine.
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, TypedDict
+import concurrent.futures
+import datetime
+from concurrent.futures import ThreadPoolExecutor
+from typing import Any, Callable, Dict, List, Optional, TypedDict
 
 from langgraph.graph import END, StateGraph
 
-from .chunks import ContextChunk
+from .chunks import ContextChunk, content_hash, utc_now_iso
 from .llm import LLMAdapter
 from .prompts import DEFAULT_PROMPTS, PromptTemplates, render_prompt
 from .stores.base import BaseContextStore
@@ -29,6 +32,8 @@ class MapReduceState(TypedDict, total=False):
     max_chunk_tokens: int
     max_context_tokens: int
     max_repair_attempts: int
+    max_workers: int
+    resume: bool
     # Map phase
     chunks: List[ContextChunk]
     map_results: List[str]
@@ -49,10 +54,28 @@ def build_graph(
     store: BaseContextStore,
     token_counter: Optional[TokenCounter] = None,
     prompts: Optional[PromptTemplates] = None,
+    max_workers: int = 1,
+    on_event: Optional[Callable[[Dict[str, Any]], None]] = None,
+    scrubber: Optional[Callable[[str], str]] = None,
 ) -> Any:
-    """Compile the map/merge/repair graph with injected dependencies."""
+    """Compile the map/merge/repair graph with injected dependencies.
+
+    ``max_workers > 1`` runs the map phase on a thread pool (shared adapter,
+    lock-guarded pacing). ``on_event`` receives structured progress events;
+    ``scrubber`` rewrites content before anything is persisted.
+    """
     prompts = prompts or DEFAULT_PROMPTS
     counter: TokenCounter = token_counter or store.counter
+
+    def emit(name: str, **fields: Any) -> None:
+        if on_event is None:
+            return
+        try:  # observability must never kill a run
+            on_event({"event": name,
+                      "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                      **fields})
+        except Exception:
+            pass
 
     def _combine(parts: List[str], state: MapReduceState, label: str) -> str:
         """One combine call over a group of results (fits the merge budget)."""
@@ -74,13 +97,21 @@ def build_graph(
     # ------------------------------------------------------------------
 
     def chunk_input(state: MapReduceState) -> Dict[str, Any]:
+        content = state["input_content"]
+        if scrubber is not None:
+            content = scrubber(content)  # raw text is never persisted or mapped
         chunks = store.store_context(
-            content=state["input_content"],
+            content=content,
             session_id=state["session_id"],
             metadata={"task": state["task"]},
             max_chunk_tokens=state.get("max_chunk_tokens", 3000),
         )
         total_tokens = sum(c.token_count for c in chunks)
+        emit("run_started", session_id=state["session_id"], chunks=len(chunks),
+             input_tokens=total_tokens, task=state["task"])
+        for c in chunks:
+            emit("chunk_stored", chunk_id=c.id, chunk_index=c.chunk_index,
+                 token_count=c.token_count)
         return {
             "chunks": chunks,
             "total_input_tokens": total_tokens,
@@ -94,8 +125,41 @@ def build_graph(
         chunks = state["chunks"]
         total = len(chunks)
         log = list(state.get("processing_log", []))
-        results: List[str] = []
-        for chunk in chunks:
+        run_sid = f"{state['session_id']}::run"
+        doc_hash = content_hash(state["input_content"])
+
+        # Resume: reuse checkpointed map results for THIS document only.
+        saved: Dict[int, str] = {}
+        if state.get("resume", False):
+            for rc in store.retrieve_context(run_sid):
+                m = rc.metadata or {}
+                if (m.get("kind") == "map_result" and m.get("doc_hash") == doc_hash
+                        and m.get("total") == total and isinstance(m.get("map_index"), int)):
+                    saved[m["map_index"]] = rc.content
+        if saved:
+            log.append(f"Resuming: {len(saved)}/{total} map results restored from checkpoint")
+
+        results: List[Any] = [saved.get(i) for i in range(total)]
+        todo = [ch for ch in chunks if results[ch.chunk_index] is None]
+
+        def _checkpoint(chunk: ContextChunk, text: str) -> None:
+            # Persist via _persist (NOT store_context): the run session holds
+            # one record per map result with chunk_index == map_index, so
+            # repeated store_context calls would collide on index 0.
+            h = content_hash(text)
+            store._persist([ContextChunk(
+                id=f"{run_sid}_{chunk.chunk_index:04d}_{h}",
+                content=text,
+                metadata={"kind": "map_result", "map_index": chunk.chunk_index,
+                          "doc_hash": doc_hash, "total": total, "content_hash": h,
+                          "task": state["task"]},
+                token_count=counter(text),
+                created_at=utc_now_iso(),
+                chunk_index=chunk.chunk_index,
+                total_chunks=total,
+            )])
+
+        def _one(chunk: ContextChunk) -> "tuple[ContextChunk, str]":
             prompt = render_prompt(
                 prompts.map,
                 {
@@ -106,8 +170,53 @@ def build_graph(
                     "chunk_content": chunk.content,
                 },
             )
-            results.append(llm.complete(prompt))
-            log.append(f"Mapped chunk {chunk.chunk_index + 1}/{total}: {len(results[-1])} chars")
+            try:
+                text, meta = llm.complete_with_meta(prompt)
+            except Exception as exc:
+                raise RuntimeError(
+                    f"map failed for chunk {chunk.chunk_index + 1}/{total}: {exc}"
+                ) from exc
+            emit("map_completed", chunk_index=chunk.chunk_index,
+                 duration_ms=meta.get("duration_ms"), usage=meta.get("usage"),
+                 attempt=meta.get("attempt"))
+            return chunk, text
+
+        if todo:
+            errors: List["tuple[ContextChunk, Exception]"] = []
+            if max_workers > 1 and len(todo) > 1:
+                workers = min(max_workers, len(todo))
+                log.append(f"Mapping {len(todo)} chunks with {workers} workers")
+                with ThreadPoolExecutor(max_workers=workers) as pool:
+                    futures = {pool.submit(_one, ch): ch for ch in todo}
+                    for fut in concurrent.futures.as_completed(futures):
+                        chunk = futures[fut]
+                        try:
+                            _, text = fut.result()
+                        except Exception as exc:  # checkpoint successes, surface first failure
+                            errors.append((chunk, exc))
+                            continue
+                        results[chunk.chunk_index] = text
+                        log.append(f"Mapped chunk {chunk.chunk_index + 1}/{total}: {len(text)} chars")
+                        _checkpoint(chunk, text)
+            else:
+                for chunk in todo:
+                    try:
+                        _, text = _one(chunk)
+                    except Exception as exc:
+                        errors.append((chunk, exc))
+                        break  # serial: stop at first failure, earlier chunks checkpointed
+                    results[chunk.chunk_index] = text
+                    log.append(f"Mapped chunk {chunk.chunk_index + 1}/{total}: {len(text)} chars")
+                    _checkpoint(chunk, text)
+            if errors:
+                chunk, exc = errors[0]
+                raise RuntimeError(
+                    f"map failed for chunk {chunk.chunk_index + 1}/{total}: {exc}"
+                ) from exc
+
+        missing = [i for i, r in enumerate(results) if r is None]
+        if missing:
+            raise RuntimeError(f"map phase produced no result for chunk index(es) {missing}")
         return {"map_results": results, "processing_log": log}
 
     def merge_results(state: MapReduceState) -> Dict[str, Any]:
@@ -151,6 +260,8 @@ def build_graph(
         log_msg = (f"Merged {len(results)} results into {token_count} tokens"
                    + (f" ({passes} hierarchical pass(es))" if passes else ""))
         log.append(log_msg)
+        emit("merge_completed", map_results=len(results), token_count=token_count,
+             hierarchical_passes=passes)
         return {
             "merged_result": merged,
             "merge_token_count": token_count,
@@ -177,6 +288,8 @@ def build_graph(
         attempts += 1
         log = list(state.get("processing_log", []))
         log.append(f"Repair attempt {attempts}: {current_tokens} -> {repaired_tokens} tokens")
+        emit("repair_attempted", attempt=attempts,
+             tokens_before=current_tokens, tokens_after=repaired_tokens)
 
         still_too_long = repaired_tokens > max_context
         can_retry = attempts < state.get("max_repair_attempts", 3)
@@ -194,6 +307,11 @@ def build_graph(
     def finalize(state: MapReduceState) -> Dict[str, Any]:
         final = state.get("final_result") or state.get("merged_result", "")
         log = list(state.get("processing_log", [])) + ["Processing complete"]
+        emit("run_completed", session_id=state["session_id"],
+             chunks=len(state.get("chunks", [])),
+             final_chars=len(final),
+             input_tokens=state.get("total_input_tokens", 0),
+             repair_attempts=state.get("repair_attempts", 0))
         return {"final_result": final, "processing_log": log}
 
     # ------------------------------------------------------------------

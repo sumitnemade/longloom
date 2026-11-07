@@ -10,6 +10,7 @@ The workflow never talks to a vendor SDK directly — it goes through
 """
 from __future__ import annotations
 
+import threading
 from typing import Callable, Optional, Union
 
 from langchain_core.language_models import BaseChatModel
@@ -52,35 +53,71 @@ class LLMAdapter:
         self.retry_backoff = max(0.0, retry_backoff)
         self.min_interval = max(0.0, min_interval)
         self._last_call = 0.0
+        self._lock = threading.Lock()   # pacing/retry state is shared across worker threads
 
-    def _once(self, prompt: str) -> str:
+    @staticmethod
+    def _extract_usage(response: Any) -> Optional[Dict[str, Any]]:
+        um = getattr(response, "usage_metadata", None)
+        if isinstance(um, dict):
+            return {k: um.get(k) for k in ("input_tokens", "output_tokens", "total_tokens")}
+        rm = getattr(response, "response_metadata", None) or {}
+        tu = rm.get("token_usage")
+        if isinstance(tu, dict):
+            return {k: tu.get(k) for k in ("prompt_tokens", "completion_tokens", "total_tokens")}
+        return None
+
+    def _once(self, prompt: str) -> "tuple[str, Dict[str, Any]]":
         if self._model is not None:
             response = self._model.invoke([HumanMessage(content=prompt)])
             content = response.content
-            return content if isinstance(content, str) else str(content)
+            text = content if isinstance(content, str) else str(content)
+            return text, {"usage": self._extract_usage(response)}
         assert self._fn is not None
-        return self._fn(prompt)
+        return self._fn(prompt), {"usage": None}
 
-    def complete(self, prompt: str) -> str:
+    def complete_with_meta(self, prompt: str) -> "tuple[str, Dict[str, Any]]":
+        """Run one completion; return ``(text, meta)`` where meta carries
+        ``usage`` (when the backend reports it), ``backend``, ``attempt`` and
+        ``duration_ms``. Thread-safe: pacing and retry state are lock-guarded,
+        so worker threads can share one adapter during parallel map."""
         import time
 
         if self.min_interval > 0:
-            wait = self.min_interval - (time.time() - self._last_call)
-            if wait > 0:
-                time.sleep(wait)
+            with self._lock:
+                wait = self.min_interval - (time.time() - self._last_call)
+                if wait > 0:
+                    time.sleep(wait)
+                self._last_call = time.time()
         last_exc: Optional[Exception] = None
         for attempt in range(self.retry_attempts + 1):
+            start = time.time()
             try:
-                result = self._once(prompt)
-                self._last_call = time.time()
-                return result
+                text, meta = self._once(prompt)
+                with self._lock:
+                    self._last_call = time.time()
+                meta.update({"backend": self.backend, "attempt": attempt,
+                             "duration_ms": int((time.time() - start) * 1000)})
+                return text, meta
             except Exception as exc:  # transient API failures included
                 last_exc = exc
-                self._last_call = time.time()
+                with self._lock:
+                    self._last_call = time.time()
+                if isinstance(exc, ValueError):
+                    raise  # deterministic input errors: retrying is pointless
                 if attempt < self.retry_attempts:
                     time.sleep(self.retry_backoff * (2 ** attempt))
         assert last_exc is not None
         raise last_exc
+
+    def complete(self, prompt: str) -> str:
+        return self.complete_with_meta(prompt)[0]
+
+    async def acomplete(self, prompt: str) -> str:
+        """Async entry point — thread-offloaded so the event loop stays free
+        while all retry/pacing/lock logic is reused unchanged."""
+        import asyncio
+
+        return await asyncio.to_thread(self.complete, prompt)
 
     @property
     def backend(self) -> str:

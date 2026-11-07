@@ -40,7 +40,7 @@ def test_sqlite_memory_url():
 
 def test_unknown_scheme_raises():
     with pytest.raises(ValueError, match="Unsupported store URL"):
-        create_store("oracle://thin:something")
+        create_store("crystaldb://magic")
 
 
 def test_empty_url_raises():

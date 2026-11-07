@@ -34,6 +34,7 @@ class PhaseAwareFakeChatModel(BaseChatModel):
     map_response: str = "[MAP RESULT] ok"
     merge_response: str = "[MERGE RESULT] " + "; ".join(KEY_CONCEPTS)
     repair_response: str = "[REPAIRED RESULT] " + "; ".join(KEY_CONCEPTS)
+    conflicts_response: str = "NONE"
     calls: List[str] = Field(default_factory=list)
 
     @property
@@ -41,6 +42,8 @@ class PhaseAwareFakeChatModel(BaseChatModel):
         return "phase-aware-fake"
 
     def _detect_phase(self, prompt: str) -> str:
+        if "Do not invent conflicts" in prompt:
+            return "conflicts"
         if MAP_RE.search(prompt):
             return "map"
         if REPAIR_RE.search(prompt):
@@ -63,6 +66,7 @@ class PhaseAwareFakeChatModel(BaseChatModel):
             "map": self.map_response,
             "merge": self.merge_response,
             "repair": self.repair_response,
+            "conflicts": self.conflicts_response,
         }.get(phase, "[UNKNOWN PHASE] " + prompt[:80])
         return ChatResult(generations=[ChatGeneration(message=AIMessage(content=response))])
 

@@ -210,15 +210,22 @@ identical session IDs. See `examples/17_embed_existing_database.py`.
 | **Retry + pacing** | Exponential backoff for 429/5xx/timeouts, optional min-interval between calls for long matrix runs. |
 | **Bounded repair** | Oversized results condense with a capped attempt count — no infinite loops, no silent truncation. |
 | **Token-count guardrails** | tiktoken exact or zero-dep estimator; chunk sizes clamped so map results are always combinable. |
+| **Parallel map** | `max_workers=8` runs the map phase on a thread pool with shared rate-limit pacing — measured 4× on an 8-chunk document. |
+| **Checkpoint/resume** | Map results are checkpointed per chunk; `resume=True` re-runs only what never completed after a crash. |
+| **Observability** | `on_event=` emits structured events (per chunk, per LLM call with token usage, per repair) — forward to OTel/Datadog as you like. |
+| **Retention & PII scrubbing** | `scrubber=` rewrites content before anything is stored; `delete_sessions_older_than(days)` sweeps old sessions across every backend. |
+| **Conflict detection** | `detect_conflicts=True` runs an advisory pass that flags contradictory values side by side. |
 | **Typed & versioned** | `py.typed`, semantic versioning, CHANGELOG, per-provider extras. |
 
 ### Honest limits
 
-- Map/merge **aggregates**; it doesn't reason globally — cross-chunk conflicts
-  (two versions of the same figure) are preserved side by side, not reconciled.
-- Final results don't cite source chunks (the store does — provenance output is
-  on the roadmap).
-- The map phase is sequential; parallelize externally for very large corpora.
+- Map/merge **aggregates**; it doesn't reason globally — `detect_conflicts=True`
+  flags contradictions, but reconciling them is a human decision.
+- A single line larger than the chunk budget is still hard-split (at whitespace,
+  so identifier tokens survive) — multi-line records can span chunk seams.
+- Async support is thread-offloaded (`process_async`), not a native async graph.
+- MSSQL/Oracle dialects are SQL-generation-tested; live-server verification
+  is on the roadmap.
 - tiktoken approximates non-OpenAI tokenizers — keep 2× headroom on chunk sizes.
 
 ## Examples — every claim is a runnable script
@@ -262,6 +269,12 @@ Your LLM can even be a plain function.
 **What if my output is bigger than the window?** The repair loop condenses it,
 and the merge stage itself groups results hierarchically — oversized inputs are
 the library's job, not yours.
+
+**Can I run the map phase in parallel?** Yes — `max_workers=8` on the
+processor. Pacing and retries are shared and lock-guarded across workers.
+
+**A run crashed halfway — do I start over?** No: `process(..., resume=True)`
+reuses the checkpointed map results and maps only the missing chunks.
 
 **Is my data sent anywhere?** Only to the LLM provider you configure. Storage
 stays in whatever database *you* chose.

@@ -81,6 +81,15 @@ class PromptTemplates:
         "Provide a condensed version that fits within {max_tokens} tokens.\n"
         "Focus on: {task_focus}"
     )
+    conflicts: str = (
+        "Review the report below and identify CONTRADICTORY statements: the "
+        "same subject carrying different values, dates, quantities or claims.\n"
+        "Output one line per contradiction, formatted exactly:\n"
+        "CONFLICT: <statement A> || <statement B>\n"
+        "If there are no contradictions, output exactly: NONE\n"
+        "Do not invent conflicts. Do not add commentary.\n\n"
+        "REPORT:\n{final_result}"
+    )
 
     @classmethod
     def for_extraction(cls) -> "PromptTemplates":

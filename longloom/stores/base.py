@@ -109,6 +109,28 @@ class BaseContextStore(ABC):
         """Remove every chunk belonging to a session."""
         self._delete_session(session_id)
 
+    def list_sessions(self) -> List[str]:
+        """All session ids known to this backend. Built-in backends override
+        this; a custom backend without it simply forgoes retention sweeps."""
+        raise NotImplementedError(
+            f"{type(self).__name__} does not implement list_sessions()")
+
+    def delete_sessions_older_than(self, days: int) -> int:
+        """Retention sweep: delete sessions whose oldest chunk predates
+        ``days``. Returns the number of sessions deleted. Compares ISO-8601
+        ``created_at`` strings, so it works on every backend."""
+        import datetime as _dt
+
+        cutoff = (_dt.datetime.now(_dt.timezone.utc)
+                  - _dt.timedelta(days=days)).isoformat()
+        deleted = 0
+        for session_id in self.list_sessions():
+            info = self.get_session_info(session_id)
+            if info.get("chunk_count") and info.get("first_chunk_at", "") < cutoff:
+                self.delete_session(session_id)
+                deleted += 1
+        return deleted
+
     # ------------------------------------------------------------------
     # Backend primitives
     # ------------------------------------------------------------------

@@ -40,6 +40,7 @@ def main() -> int:
         min_interval=1.0,      # pace calls across the 8-backend matrix
         retry_attempts=5, retry_backoff=4.0,   # survive provider 429 windows
     )
+    print("map phase: parallel (max_workers=4) + structured events on")
     print(f"LLM: {MODEL} (real API, thinking disabled)\n")
 
     ran, skipped, failed = run_matrix(

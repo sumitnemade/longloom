@@ -23,7 +23,9 @@ from .llm import LLMAdapter, LLMLike, init_llm
 from .processor import MapReduceProcessor
 from .prompts import DEFAULT_PROMPTS, PromptTemplates, render_prompt
 from .stores import (
+    MSSQL_DIALECT,
     MYSQL_DIALECT,
+    ORACLE_DIALECT,
     POSTGRES_DIALECT,
     SQLITE_DIALECT,
     BaseContextStore,
@@ -36,7 +38,7 @@ from .stores import (
 )
 from .tokens import EstimateCounter, TiktokenCounter, TokenCounter, default_counter
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 
 __all__ = [
     # processor / graph
@@ -57,6 +59,8 @@ __all__ = [
     "POSTGRES_DIALECT",
     "MYSQL_DIALECT",
     "SQLITE_DIALECT",
+    "MSSQL_DIALECT",
+    "ORACLE_DIALECT",
     "MongoContextStore",
     "SupabaseContextStore",
     "create_store",

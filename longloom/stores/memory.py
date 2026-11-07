@@ -47,6 +47,9 @@ class InMemoryContextStore(BaseContextStore):
     def _delete_session(self, session_id: str) -> None:
         self._sessions.pop(session_id, None)
 
+    def list_sessions(self) -> List[str]:
+        return list(self._sessions.keys())
+
     def search_context(
         self,
         session_id: str,

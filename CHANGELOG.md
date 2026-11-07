@@ -2,7 +2,7 @@
 
 All notable changes to LongLoom are documented here.
 
-## [Unreleased]
+## [1.1.0] — 2026-11-07
 
 ### Added
 - **PyPI live** — `longloom 1.0.0` published via Trusted Publishing;
