@@ -36,10 +36,10 @@ jobs:
       - name: Metadata pre-flight
         run: twine check dist/*
 
-      - name: Sanity — version matches tag
+      - name: Sanity — version matches tag (regex, no package import)
         run: |
           TAG="${GITHUB_REF_NAME#v}"
-          PKG=$(python -c "import longloom; print(longloom.__version__)")
+          PKG=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' longloom/__init__.py)
           test "$TAG" = "$PKG" || { echo "tag v$TAG != package $PKG"; exit 1; }
 
       - name: Skip if this version is already on PyPI (idempotent re-runs)
