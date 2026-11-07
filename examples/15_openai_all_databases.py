@@ -31,7 +31,8 @@ def main() -> int:
     guard("OPENAI_API_KEY env var", bool(os.environ.get("OPENAI_API_KEY")))
     from longloom import LLMAdapter
     llm = LLMAdapter(
-        init_llm("openai", MODEL, temperature=0.2, max_tokens=1024, timeout=120),
+        init_llm("openai", MODEL, api_key=os.environ["OPENAI_API_KEY"],
+                 temperature=0.2, max_tokens=1024, timeout=120),
         min_interval=1.0,      # pace calls across the 8-backend matrix
         retry_attempts=5, retry_backoff=4.0,   # survive provider 429 windows
     )

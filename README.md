@@ -63,7 +63,9 @@ Python ≥ 3.10 · Optional extras: `[tiktoken]` `[nvidia]` `[openai]` `[postgre
 from longloom import MapReduceProcessor, SQLiteContextStore, init_llm
 
 processor = MapReduceProcessor(
-    llm=init_llm("nvidia", "nvidia/nemotron-3-ultra-550b-a55b", thinking=False),
+    llm=init_llm("nvidia", "nvidia/nemotron-3-ultra-550b-a55b",
+                 api_key=os.environ["NVIDIA_API_KEY"],   # your app owns the key
+                 thinking=False),
     store=SQLiteContextStore("ctx.db"),
     max_chunk_tokens=3000,
     max_context_tokens=8192,          # your model's real window
@@ -110,11 +112,18 @@ compress. Summaries → `DEFAULT_PROMPTS`; completeness → `for_extraction()`.
 ## Any LLM
 
 ```python
-init_llm("nvidia",    "nvidia/nemotron-3-ultra-550b-a55b", thinking=False)
-init_llm("openai",    "gpt-4o-mini")
-init_llm("anthropic", "claude-sonnet-4-20250514")
-init_llm("groq" | "ollama" | "mistral" | "deepseek" | "together", ...)
+init_llm("nvidia",    "nvidia/nemotron-3-ultra-550b-a55b",
+         api_key=os.environ["NVIDIA_API_KEY"], thinking=False)
+init_llm("openai",    "gpt-4o-mini", api_key=os.environ["OPENAI_API_KEY"])
+init_llm("anthropic", "claude-sonnet-4-20250514", api_key=os.environ["ANTHROPIC_API_KEY"])
+init_llm("groq" | "mistral" | "deepseek" | "together", ..., api_key=...)
+init_llm("ollama", "llama3.1")                               # no key needed
 ```
+
+> 🔐 **Keys are constructor arguments, never environment reads.** LongLoom
+> itself never touches `os.environ` for credentials — your application reads
+> the secret (vault, env, wherever) and passes it explicitly. Explicit beats
+> implicit when credentials are involved.
 
 …or bring your own: any LangChain `BaseChatModel`, or a bare function —
 the minimum contract is `str → str`:

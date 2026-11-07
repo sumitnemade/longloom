@@ -22,6 +22,7 @@ def main() -> int:
         return 1
 
     llm = ChatOpenAI(model=os.environ.get("OPENAI_MODEL", "gpt-4o-mini"),
+                     api_key=os.environ["OPENAI_API_KEY"],
                      temperature=0.2, max_tokens=1024)
     processor = MapReduceProcessor(
         llm=llm,

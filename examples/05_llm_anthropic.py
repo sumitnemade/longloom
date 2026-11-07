@@ -22,7 +22,7 @@ def main() -> int:
         return 1
 
     llm = ChatAnthropic(model=os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-20250514"),
-                        max_tokens=1024)
+                        api_key=os.environ["ANTHROPIC_API_KEY"], max_tokens=1024)
     processor = MapReduceProcessor(
         llm=llm,
         store=InMemoryContextStore(),

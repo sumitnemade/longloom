@@ -43,9 +43,11 @@ def build_llm():
     if os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVIDIA_NIM_API_KEY"):
         return init_llm("nvidia", os.environ.get(
             "NVIDIA_MODEL", "nvidia/nemotron-3-ultra-550b-a55b"),
+            api_key=os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVIDIA_NIM_API_KEY"),
             temperature=0.0, max_tokens=2048, thinking=False), "nvidia"
     if os.environ.get("OPENAI_API_KEY"):
         return init_llm("openai", os.environ.get("OPENAI_MODEL", "gpt-4o-mini"),
+                        api_key=os.environ["OPENAI_API_KEY"],
                         temperature=0.0, max_tokens=2048, timeout=120), "openai"
     print("SKIPPED: set NVIDIA_API_KEY or OPENAI_API_KEY for the real-LLM run")
     raise SystemExit(3)

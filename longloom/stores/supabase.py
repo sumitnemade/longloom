@@ -21,7 +21,6 @@ Embedding in an existing project::
 """
 from __future__ import annotations
 
-import os
 from typing import Any, Dict, List, Optional
 
 from .base import BaseContextStore
@@ -64,12 +63,10 @@ class SupabaseContextStore(BaseContextStore):
                  namespace: Optional[str] = None, namespace_field: str = "namespace",
                  **kwargs):
         super().__init__(**kwargs)
-        url = url or os.environ.get("SUPABASE_URL")
-        key = key or os.environ.get("SUPABASE_KEY")
         if not url or not key:
             raise ValueError(
-                "Supabase URL and key required — pass url=/key= or set "
-                "SUPABASE_URL and SUPABASE_KEY environment variables."
+                "Supabase url= and key= are required parameters. LongLoom "
+                "never reads credentials from the environment."
             )
         try:
             from supabase import create_client
