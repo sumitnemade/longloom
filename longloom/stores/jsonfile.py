@@ -97,6 +97,9 @@ class JSONFileContextStore(BaseContextStore):
         if os.path.exists(path):
             os.remove(path)
 
+    def list_sessions(self) -> List[str]:
+        return [f[:-6] for f in os.listdir(self.root_dir) if f.endswith(".jsonl")]
+
     # -- search ---------------------------------------------------------
 
     def search_context(

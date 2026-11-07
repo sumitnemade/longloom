@@ -42,12 +42,16 @@ postgres = ["sqlalchemy>=2.0", "psycopg2-binary>=2.9"]
 mysql = ["sqlalchemy>=2.0", "pymysql>=1.1"]
 mongodb = ["pymongo>=4.6"]
 supabase = ["supabase>=2.4"]
+mssql = ["sqlalchemy>=2.0", "pymssql>=2.2"]
+oracle = ["sqlalchemy>=2.0", "oracledb>=2.4"]
 databases = [
     "sqlalchemy>=2.0",
     "psycopg2-binary>=2.9",
     "pymysql>=1.1",
     "pymongo>=4.6",
     "supabase>=2.4",
+    "pymssql>=2.2",
+    "oracledb>=2.4",
 ]
 all = [
     "tiktoken>=0.7.0",

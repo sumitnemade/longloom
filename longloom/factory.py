@@ -29,7 +29,7 @@ __all__ = ["create_store", "SUPPORTED_SCHEMES"]
 
 SUPPORTED_SCHEMES = (
     "memory", "json", "sqlite", "postgres", "postgresql", "mysql", "mariadb",
-    "mongodb", "mongodb+srv", "supabase", "https",
+    "mssql", "oracle", "mongodb", "mongodb+srv", "supabase", "https",
 )
 
 
@@ -85,6 +85,24 @@ def create_store(
             **kwargs,
         )
 
+    if scheme == "mssql":
+        from .stores.sql import MSSQL_DIALECT, SqlContextStore
+
+        return SqlContextStore(
+            connect=_sql_connect_factory(url, "mssql"),
+            dialect=MSSQL_DIALECT, table=table, columns=columns, namespace=namespace,
+            **kwargs,
+        )
+
+    if scheme in ("oracle", "oracledb"):
+        from .stores.sql import ORACLE_DIALECT, SqlContextStore
+
+        return SqlContextStore(
+            connect=_sql_connect_factory(url, "oracle"),
+            dialect=ORACLE_DIALECT, table=table, columns=columns, namespace=namespace,
+            **kwargs,
+        )
+
     if scheme in ("mysql", "mariadb"):
         from .stores.sql import MYSQL_DIALECT, SqlContextStore
 
@@ -120,7 +138,8 @@ def create_store(
 
     raise ValueError(
         f"Unsupported store URL scheme: {scheme!r}. Supported: memory://, json://, "
-        "sqlite://, postgresql://, mysql://, mongodb://, supabase://, https://<proj>.supabase.co"
+        "sqlite://, postgresql://, mysql://, mssql://, oracle://, mongodb://, "
+        "supabase://, https://<proj>.supabase.co"
     )
 
 
@@ -139,6 +158,10 @@ def _sql_connect_factory(url: str, kind: str) -> Callable[[], Any]:
         norm = url
         if norm.startswith("postgres://"):
             norm = "postgresql://" + norm[len("postgres://"):]
+        if kind == "mssql" and not norm.startswith("mssql+"):
+            norm = "mssql+pymssql://" + norm.split("://", 1)[1]
+        if kind == "oracle" and not norm.startswith("oracle+"):
+            norm = "oracle+oracledb://" + norm.split("://", 1)[1]
         if kind == "mysql" and not norm.startswith("mysql+"):
             try:
                 import MySQLdb  # type: ignore  # noqa: F401
@@ -188,6 +211,52 @@ def _sql_connect_factory(url: str, kind: str) -> Callable[[], Any]:
         pass
 
     # Fallback: known drivers directly.
+    if kind == "mssql":
+        def connect_mssql() -> Any:
+            parsed = urlparse(url)
+            conn_kwargs = {
+                "server": parsed.hostname or "127.0.0.1",
+                "port": parsed.port or 1433,
+                "user": unquote(parsed.username or "sa"),
+                "password": unquote(parsed.password or ""),
+                "database": unquote(parsed.path.lstrip("/")) or None,
+            }
+            conn_kwargs = {k: v for k, v in conn_kwargs.items() if v is not None}
+            try:
+                import pymssql
+
+                return _as_executable(pymssql.connect(**conn_kwargs))
+            except ImportError as exc:
+                raise ImportError(
+                    "No MSSQL driver found. Install pymssql or sqlalchemy. "
+                    "pip install 'longloom[mssql]'"
+                ) from exc
+
+        connect_mssql()  # validate eagerly
+        return connect_mssql
+
+    if kind == "oracle":
+        def connect_oracle() -> Any:
+            parsed = urlparse(url)
+            host = parsed.hostname or "127.0.0.1"
+            port = parsed.port or 1521
+            service = unquote(parsed.path.lstrip("/")) or "ORCLPDB1"
+            try:
+                import oracledb
+
+                return _as_executable(oracledb.connect(
+                    user=unquote(parsed.username or "system"),
+                    password=unquote(parsed.password or ""),
+                    dsn=f"{host}:{port}/{service}"))
+            except ImportError as exc:
+                raise ImportError(
+                    "No Oracle driver found. Install oracledb or sqlalchemy. "
+                    "pip install 'longloom[oracle]'"
+                ) from exc
+
+        connect_oracle()  # validate eagerly
+        return connect_oracle
+
     if kind == "postgres":
         def connect_pg() -> Any:
             try:

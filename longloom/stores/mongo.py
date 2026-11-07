@@ -127,6 +127,10 @@ class MongoContextStore(BaseContextStore):
     def _delete_session(self, session_id: str) -> None:
         self.collection.delete_many(self._query(session_id))
 
+    def list_sessions(self) -> List[str]:
+        sessions = self.collection.distinct(self.names.col("session_id"))
+        return [s for s in sessions if s]
+
     # -- search / info --------------------------------------------------------
 
     def search_context(

@@ -33,6 +33,7 @@ from ..chunks import ContextChunk
 __all__ = [
     "SqlDialect", "SqlContextStore",
     "POSTGRES_DIALECT", "MYSQL_DIALECT", "SQLITE_DIALECT",
+    "MSSQL_DIALECT", "ORACLE_DIALECT",
 ]
 
 _NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -44,6 +45,11 @@ class SqlDialect:
     placeholder: str                                   # "?" (sqlite) / "%s" (pg, mysql)
     ddl: Callable[[str, Dict[str, str], Optional[str]], List[str]]
     upsert: Callable[[str, Dict[str, str], Optional[str]], str]
+    numbered_binds: bool = False                       # Oracle ":1, :2, ..."
+
+    def bind(self, index: int) -> str:
+        """Bind placeholder for the n-th (1-based) parameter of a statement."""
+        return f":{index}" if self.numbered_binds else self.placeholder
 
 
 def _ddl_postgres(table: str, c: Dict[str, str], ns: Optional[str]) -> List[str]:
@@ -134,9 +140,96 @@ def _upsert_sqlite(table: str, c: Dict[str, str], ns: Optional[str]) -> str:
     )
 
 
+def _ddl_mssql(table: str, c: Dict[str, str], ns: Optional[str]) -> List[str]:
+    defs = [
+        f"{c['id']} NVARCHAR(255) PRIMARY KEY",
+        f"{c['content_hash']} NVARCHAR(64) NOT NULL",
+        f"{c['metadata']} NVARCHAR(MAX) NOT NULL",
+        f"{c['token_count']} INT NOT NULL",
+        f"{c['created_at']} NVARCHAR(64) NOT NULL",
+        f"{c['chunk_index']} INT NOT NULL",
+        f"{c['total_chunks']} INT NOT NULL",
+        f"{c['session_id']} NVARCHAR(255) NOT NULL",
+        f"{c['content']} NVARCHAR(MAX)",
+    ]
+    if ns:
+        defs.append(f"{ns} NVARCHAR(128) NOT NULL DEFAULT ''")
+    create = f"CREATE TABLE {table} ({', '.join(defs)})"
+    guard = f"IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = '{table}')\nBEGIN\n  {create}\nEND"
+    idx_name = f"idx_{table}_session"
+    index = (f"IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = '{idx_name}' "
+             f"AND object_id = OBJECT_ID('{table}'))\n"
+             f"CREATE INDEX {idx_name} ON {table} ({c['session_id']}, {c['chunk_index']})")
+    return [guard, index]
+
+
+def _upsert_mssql(table: str, c: Dict[str, str], ns: Optional[str]) -> str:
+    cols = list(c.values())
+    selects = ", ".join(f"%s AS {col}" for col in cols)
+    updates = ", ".join(f"t.{col} = s.{col}" for col in cols if col != c["id"])
+    insert_cols = ", ".join(cols)
+    insert_vals = ", ".join(f"s.{col}" for col in cols)
+    return (
+        f"MERGE INTO {table} WITH (HOLDLOCK) AS t "
+        f"USING (SELECT {selects}) AS s "
+        f"ON t.{c['id']} = s.{c['id']} "
+        f"WHEN MATCHED THEN UPDATE SET {updates} "
+        f"WHEN NOT MATCHED THEN INSERT ({insert_cols}) VALUES ({insert_vals});"
+    )
+
+
+def _ddl_oracle(table: str, c: Dict[str, str], ns: Optional[str]) -> List[str]:
+    defs = [
+        f"{c['id']} NVARCHAR2(255) PRIMARY KEY",
+        f"{c['content_hash']} NVARCHAR2(64) NOT NULL",
+        f"{c['metadata']} CLOB NOT NULL",
+        f"{c['token_count']} NUMBER(10) NOT NULL",
+        f"{c['created_at']} NVARCHAR2(64) NOT NULL",
+        f"{c['chunk_index']} NUMBER(10) NOT NULL",
+        f"{c['total_chunks']} NUMBER(10) NOT NULL",
+        f"{c['session_id']} NVARCHAR2(255) NOT NULL",
+        f"{c['content']} CLOB",
+    ]
+    if ns:
+        defs.append(f"{ns} NVARCHAR2(128) DEFAULT '' NOT NULL")
+    create = f"CREATE TABLE {table} ({', '.join(defs)})"
+    idx_name = f"ix_{table[:20]}"
+
+    def plsql(statement: str, ignore_codes: str) -> str:
+        return (f"BEGIN\n"
+                f"  EXECUTE IMMEDIATE '{statement}';\n"
+                f"EXCEPTION\n"
+                f"  WHEN OTHERS THEN\n"
+                f"    IF SQLCODE NOT IN ({ignore_codes}) THEN RAISE; END IF;\n"
+                f"END;")
+
+    return [
+        plsql(create, "-955"),
+        plsql(f"CREATE INDEX {idx_name} ON {table} ({c['session_id']}, {c['chunk_index']})",
+              "-955, -1408"),
+    ]
+
+
+def _upsert_oracle(table: str, c: Dict[str, str], ns: Optional[str]) -> str:
+    cols = list(c.values())
+    using = ", ".join(f":{i + 1} AS {col}" for i, col in enumerate(cols))
+    updates = ", ".join(f"t.{col} = s.{col}" for col in cols if col != c["id"])
+    insert_cols = ", ".join(cols)
+    insert_vals = ", ".join(f"s.{col}" for col in cols)
+    return (
+        f"MERGE INTO {table} t "
+        f"USING (SELECT {using} FROM dual) s "
+        f"ON (t.{c['id']} = s.{c['id']}) "
+        f"WHEN MATCHED THEN UPDATE SET {updates} "
+        f"WHEN NOT MATCHED THEN INSERT ({insert_cols}) VALUES ({insert_vals})"
+    )
+
+
 POSTGRES_DIALECT = SqlDialect("postgres", "%s", _ddl_postgres, _upsert_postgres)
 MYSQL_DIALECT = SqlDialect("mysql", "%s", _ddl_mysql, _upsert_mysql)
 SQLITE_DIALECT = SqlDialect("sqlite", "?", _ddl_sqlite, _upsert_sqlite)
+MSSQL_DIALECT = SqlDialect("mssql", "%s", _ddl_mssql, _upsert_mssql)
+ORACLE_DIALECT = SqlDialect("oracle", ":%d", _ddl_oracle, _upsert_oracle, numbered_binds=True)
 
 
 def _as_executable(conn: Any) -> Any:
@@ -284,15 +377,22 @@ class SqlContextStore(BaseContextStore):
     ) -> List[ContextChunk]:
         c = self.names.all_columns
         select_cols = [c[name] for name in LOGICAL_FIELDS]
-        sql = f"SELECT {', '.join(select_cols)} FROM {self.table} WHERE {c['session_id']} = {self.dialect.placeholder}"
+        n = 0
+
+        def nxt() -> str:
+            nonlocal n
+            n += 1
+            return self.dialect.bind(n)
+
+        sql = f"SELECT {', '.join(select_cols)} FROM {self.table} WHERE {c['session_id']} = {nxt()}"
         params: List[Any] = [session_id]
         if self.names.namespace is not None:
-            sql += f" AND {c['namespace']} = {self.dialect.placeholder}"
+            sql += f" AND {c['namespace']} = {nxt()}"
             params.append(self.names.namespace)
         if chunk_indices is not None:
             if not chunk_indices:
                 return []
-            marks = ", ".join(self.dialect.placeholder for _ in chunk_indices)
+            marks = ", ".join(nxt() for _ in chunk_indices)
             sql += f" AND {c['chunk_index']} IN ({marks})"
             params += list(chunk_indices)
         sql += f" ORDER BY {c['chunk_index']}"
@@ -300,27 +400,42 @@ class SqlContextStore(BaseContextStore):
         return [self._from_row(row) for row in rows]
 
     def _delete_session(self, session_id: str) -> None:
-        ph = self.dialect.placeholder
         c = self.names.all_columns
+        n = 0
+
+        def nxt() -> str:
+            nonlocal n
+            n += 1
+            return self.dialect.bind(n)
+
         if self.content_dir:
-            sql = f"SELECT {c['content_hash']} FROM {self.table} WHERE {c['session_id']} = {ph}"
+            sql = f"SELECT {c['content_hash']} FROM {self.table} WHERE {c['session_id']} = {nxt()}"
             params: List[Any] = [session_id]
             if self.names.namespace is not None:
-                sql += f" AND {c['namespace']} = {ph}"
+                sql += f" AND {c['namespace']} = {nxt()}"
                 params.append(self.names.namespace)
             for (content_hash,) in self.conn.execute(sql, params).fetchall():
                 path = self._content_path(content_hash)
                 if os.path.exists(path):
                     os.remove(path)
-        sql = f"DELETE FROM {self.table} WHERE {c['session_id']} = {ph}"
+        sql = f"DELETE FROM {self.table} WHERE {c['session_id']} = {nxt()}"
         params = [session_id]
         if self.names.namespace is not None:
-            sql += f" AND {c['namespace']} = {ph}"
+            sql += f" AND {c['namespace']} = {nxt()}"
             params.append(self.names.namespace)
         self.conn.execute(sql, params)
         self.conn.commit()
 
     # -- search / info --------------------------------------------------------
+
+    def list_sessions(self) -> List[str]:
+        c = self.names.all_columns
+        sql = f"SELECT DISTINCT {c['session_id']} FROM {self.table}"
+        params: List[Any] = []
+        if self.names.namespace is not None:
+            sql += f" WHERE {c['namespace']} = {self.dialect.bind(1)}"
+            params.append(self.names.namespace)
+        return [row[0] for row in self.conn.execute(sql, params).fetchall()]
 
     def search_context(
         self,
@@ -338,14 +453,20 @@ class SqlContextStore(BaseContextStore):
         return hits
 
     def get_session_info(self, session_id: str) -> Dict[str, Any]:
-        ph = self.dialect.placeholder
         c = self.names.all_columns
+        n = 0
+
+        def nxt() -> str:
+            nonlocal n
+            n += 1
+            return self.dialect.bind(n)
+
         sql = (f"SELECT COUNT(*), COALESCE(SUM({c['token_count']}), 0), "
                f"MIN({c['created_at']}), MAX({c['created_at']}) "
-               f"FROM {self.table} WHERE {c['session_id']} = {ph}")
+               f"FROM {self.table} WHERE {c['session_id']} = {nxt()}")
         params: List[Any] = [session_id]
         if self.names.namespace is not None:
-            sql += f" AND {c['namespace']} = {ph}"
+            sql += f" AND {c['namespace']} = {nxt()}"
             params.append(self.names.namespace)
         count, tokens, first, last = self.conn.execute(sql, params).fetchone()
         if not count:
