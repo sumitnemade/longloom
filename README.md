@@ -271,4 +271,4 @@ style). By participating you agree to the
 
 ## License
 
-[MIT](LICENSE) © Sumit Nemade
+[MIT](LICENSE) — © The LongLoom Maintainers

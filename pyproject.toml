@@ -9,7 +9,7 @@ description = "Weave documents of any length through LLM map/merge/repair — an
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
-authors = [{ name = "Sumit Nemade" }]
+authors = [{ name = "LongLoom Maintainers" }]
 keywords = [
     "llm", "long-context", "map-reduce", "langgraph", "chunking",
     "rag", "summarization", "nvidia", "openai", "postgresql", "mongodb",
