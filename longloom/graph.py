@@ -17,7 +17,7 @@ from .chunks import ContextChunk, content_hash, utc_now_iso
 from .llm import LLMAdapter
 from .prompts import DEFAULT_PROMPTS, PromptTemplates, render_prompt
 from .stores.base import BaseContextStore
-from .tokens import TokenCounter, default_counter
+from .tokens import TokenCounter
 
 __all__ = ["MapReduceState", "build_graph"]
 

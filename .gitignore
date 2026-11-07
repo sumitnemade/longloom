@@ -21,6 +21,7 @@ venv/
 .ruff_cache/
 .coverage
 htmlcov/
+coverage_html/
 
 # ── Databases & runtime state (any backend, any location) ───────────
 *.db
@@ -30,6 +31,9 @@ htmlcov/
 *_ctx_data/
 longloom_data/
 longloom_test_*/
+
+# ── Launch drafts (platform-specific posts) ──
+launch/
 
 # ── Generated demo/test artifacts ────────────────────────────────────
 examples/*.txt

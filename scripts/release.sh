@@ -81,8 +81,11 @@ if [[ "$MODE" == "--testpypi" || "$MODE" == "--publish" ]]; then
   say "▸ building + uploading to $TARGET" "$GREEN"
   run python -m build
   run python -m twine check dist/*
-  run python -m twine upload --repository "$TARGET" --non-interactive \
-        -u __token__ -p "${!TOKEN_VAR}" dist/*
+  # Set TWINE_PASSWORD instead of passing -p on the command line:
+  # the token must never appear in `ps` output or shell history.
+  export TWINE_USERNAME="__token__"
+  export TWINE_PASSWORD="${!TOKEN_VAR}"
+  run python -m twine upload --repository "$TARGET" --non-interactive dist/*
 elif [[ "$MODE" == "--push" ]]; then
   say "▸ pushing main + $TAG (triggers .github/workflows/release.yml → PyPI)" "$GREEN"
   run git push origin main

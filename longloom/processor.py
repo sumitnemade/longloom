@@ -37,7 +37,7 @@ from .prompts import DEFAULT_PROMPTS, PromptTemplates, render_prompt
 logger = logging.getLogger("longloom.processor")
 from .stores.base import BaseContextStore
 from .stores.memory import InMemoryContextStore
-from .tokens import TokenCounter, default_counter
+from .tokens import TokenCounter
 
 __all__ = ["MapReduceProcessor"]
 
