@@ -5,6 +5,9 @@ All notable changes to LongLoom are documented here.
 ## [Unreleased]
 
 ### Added
+- **Automated release pipeline** — `scripts/release.sh` (tests, version bump,
+  changelog, tag) and a tag-triggered GitHub workflow publishing to PyPI via
+  Trusted Publishing (OIDC); `twine check` pre-flight passes.
 - **Explicit credentials** — API keys and Supabase url/key are constructor
   arguments only; the library never reads `os.environ` for secrets. Keys are
   required for every hosted provider (`ollama` exempt).
