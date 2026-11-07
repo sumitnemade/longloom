@@ -4,10 +4,12 @@ Process documents far larger than a model's context window using a LangGraph
 map/merge/repair workflow, with dependency injection for both the LLM and the
 storage backend::
 
+    import os
     from longloom import MapReduceProcessor, SQLiteContextStore, init_llm
 
     processor = MapReduceProcessor(
-        llm=init_llm("nvidia", "nvidia/nemotron-3-ultra"),
+        llm=init_llm("nvidia", "nvidia/nemotron-3-ultra-550b-a55b",
+                     api_key=os.environ["NVIDIA_API_KEY"]),
         store=SQLiteContextStore("ctx.db"),
     )
     result = processor.process(long_document, task="Summarize")
