@@ -12,15 +12,15 @@ FACTS = [
     "u-55291", "10.44.7.12", "pixel-8-pro",
     # incident JSON
     "INC-20931", "db-replica-3", "cache-node-9", "watchdog-v2.4.1",
-    "12409", "48210", "war-8842", "ravi.kulkarni@northwind.io",
+    "12409", "48210", "war-8842", "ravi.kulkarni",
     # email thread
-    "meera.iyer@northwind.io", "v3.12.0", "RB-77123", "$6,150", "2026-11-11",
+    "meera.iyer", "v3.12.0", "RB-77123", "$6,150", "2026-11-11",
     # host table
     "orders-api-1", "eu-west-2", "orders-api-2", "search-svc-4", "us-east-2",
     "877",
     # meeting decisions
     "85 to 140", "v3.11.4", "v3.12.1", "500GB", "2026-11-08",
-    "$18,400", "PO-40812", "sara.osei", "dmitri.volkov@northwind.io",
+    "$18,400", "PO-40812", "sara.osei", "dmitri.volkov",
     # config snippet
     "idle_timeout_s = 47", "access_ttl_min = 12", "auth.northwind.io",
     # tickets
@@ -37,10 +37,10 @@ _DOC = """
 ===== watchdog payload (verbatim json from slack webhook) =====
 {"incident_id": "INC-20931", "severity": "sev1", "affected": ["db-replica-3", "cache-node-9"],
  "detected_by": "watchdog-v2.4.1", "customers_impacted": 12409, "loss_usd": 48210,
- "bridge": "https://meet.corp.inc/war-8842", "oncall": "ravi.kulkarni@northwind.io"}
+ "bridge": "https://meet.corp.inc/war-8842", "oncall": "ravi.kulkarni"}
 
 ===== email thread: re: postmortem draft v0.3 =====
-From: meera.iyer@northwind.io  09:41 IST
+From: meera.iyer (NorthWind)  09:41 IST
 root cause = connection pool exhaustion; billing-svc v3.12.0 leaked sockets
 finance ok'd refund batch RB-77123 for $6,150 — batch closes 2026-11-11
 note: dmitri says dashboards under-count; ignore p50, trust p99 numbers below
@@ -54,7 +54,7 @@ search-svc-4    us-east-2   92%    877ms   critical
 - raise pool_max from 85 to 140, staged: canary 10% first
 - pin billing-svc to v3.11.4; leak fix ships as v3.12.1
 - search-svc-4 volume +500GB deadline 2026-11-08, owner sara.osei
-- emergency capacity $18,400 approved (PO-40812), dmitri.volkov@northwind.io signs
+- emergency capacity $18,400 approved (PO-40812), dmitri.volkov (NorthWind) signs
 
 ===== config drift found during triage (diff against prod) =====
 [pool]
