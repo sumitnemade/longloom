@@ -141,6 +141,20 @@ the minimum contract is `str → str`:
 processor = MapReduceProcessor(llm=lambda prompt: my_gateway(prompt), store=store)
 ```
 
+### Custom / self-hosted endpoints (vLLM, LiteLLM, Azure APIM, gateways)
+
+```python
+llm = init_llm(
+    "custom", "acme-internal-model",
+    base_url="http://vllm.internal:8000/v1",
+    headers={"X-Tenant": "acme", "X-Trace-Id": "tr-1"},   # custom headers on every call
+    api_key="internal-token",      # optional — local servers may need none
+)
+```
+
+Wire-verified: requests hit your `base_url` with your headers attached, and
+usage metadata from the endpoint flows into the observability events.
+
 Provider quirks are handled for you: NVIDIA reasoning models get real model
 IDs, a `thinking` toggle, and a `content=None` starvation guard; OpenAI
 `extra_body` and temperature restrictions are abstracted away.

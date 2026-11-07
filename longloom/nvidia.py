@@ -40,6 +40,7 @@ class NVIDIAChatModel(BaseChatModel):
     max_tokens: int = 4096
     top_p: float = 1.0
     timeout: float = 120.0
+    headers: Dict[str, str] = {}   # extra headers (corporate proxies, tracing)
     # None  → send nothing (model default behaviour, works on every model);
     # False → disable chain-of-thought ("chat_template_kwargs": {"thinking": false});
     # True  → request reasoning. Reasoning tokens come out of max_tokens!
@@ -74,10 +75,12 @@ class NVIDIAChatModel(BaseChatModel):
         return out
 
     def _headers(self) -> Dict[str, str]:
-        return {
+        out = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
         }
+        out.update(self.headers or {})
+        return out
 
     def _payload(self, messages: List[BaseMessage], stream: bool, stop: Optional[List[str]]) -> Dict[str, Any]:
         payload: Dict[str, Any] = {
