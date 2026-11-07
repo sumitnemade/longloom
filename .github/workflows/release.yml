@@ -19,7 +19,7 @@ jobs:
     environment: pypi
     permissions:
       id-token: write      # OIDC — required for trusted publishing
-      contents: read
+      contents: write      # required to create the GitHub Release with artifacts
     steps:
       - uses: actions/checkout@v4
 

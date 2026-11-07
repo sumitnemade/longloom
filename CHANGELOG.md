@@ -5,6 +5,8 @@ All notable changes to LongLoom are documented here.
 ## [Unreleased]
 
 ### Added
+- **PyPI live** — `longloom 1.0.0` published via Trusted Publishing;
+  `pip install longloom` verified from a clean venv
 - **Automated release pipeline** — `scripts/release.sh` (tests, version bump,
   changelog, tag) and a tag-triggered GitHub workflow publishing to PyPI via
   Trusted Publishing (OIDC); `twine check` pre-flight passes.
