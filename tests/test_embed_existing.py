@@ -245,3 +245,28 @@ def test_workflow_embedded_in_existing_database(tmp_path):
     ).fetchone()[0]
     conn.close()
     assert len(legacy) == 1 and ours == result["num_chunks"]
+
+# ---------------------------------------------------------------------------
+# 6) chunking invariant: no fact token is ever split across chunks
+#    (regression guard for line-aware splitting + whitespace-snapped hard split)
+# ---------------------------------------------------------------------------
+
+def test_no_fact_token_ever_split_across_chunks():
+    import importlib.util
+    from pathlib import Path
+
+    from longloom.chunks import split_text
+    from longloom.tokens import EstimateCounter, TiktokenCounter
+
+    spec = importlib.util.spec_from_file_location(
+        "udoc", Path(__file__).resolve().parents[1] / "examples" / "_unstructured_doc.py")
+    udoc = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(udoc)
+    doc = udoc.build_unstructured_doc()
+
+    for counter, label in ((TiktokenCounter(), "tiktoken"), (EstimateCounter(), "estimate")):
+        for max_tokens in (125, 250, 350, 800):
+            chunks = split_text(doc, max_tokens, counter)
+            for fact in udoc.FACTS:
+                assert any(fact in c for c in chunks), (
+                    f"{label}@{max_tokens}: fact {fact!r} split across chunks")
