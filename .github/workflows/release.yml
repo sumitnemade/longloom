@@ -42,7 +42,19 @@ jobs:
           PKG=$(python -c "import longloom; print(longloom.__version__)")
           test "$TAG" = "$PKG" || { echo "tag v$TAG != package $PKG"; exit 1; }
 
+      - name: Skip if this version is already on PyPI (idempotent re-runs)
+        id: published
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          if curl -fsSL --max-time 15 "https://pypi.org/pypi/longloom/$VERSION/json" > /dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "version $VERSION is already on PyPI — skipping publish"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Publish to PyPI
+        if: steps.published.outputs.exists != 'true'
         uses: pypa/gh-action-pypi-publish@release/v1
 
       - name: Attach artifacts to the GitHub release
