@@ -271,4 +271,4 @@ style). By participating you agree to the
 
 ## License
 
-[MIT](LICENSE) © LongLoom Maintainers
+[MIT](LICENSE) — © The LongLoom Maintainers
