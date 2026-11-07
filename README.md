@@ -235,6 +235,7 @@ python examples/run_all.py       # 17 examples; skips gracefully what's missing
 | 15 | **OpenAI × every database** | real GPT over 8 backends |
 | 16 | **no-loss extraction** | 41/41 facts on a hostile document mix |
 | 17 | **embed in existing database** | your table, your columns, namespaces |
+| 18 | **enterprise gateway** | corporate LLM gateway + existing DB + tenant namespace |
 
 ## Test it yourself
 

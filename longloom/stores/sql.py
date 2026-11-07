@@ -139,6 +139,41 @@ MYSQL_DIALECT = SqlDialect("mysql", "%s", _ddl_mysql, _upsert_mysql)
 SQLITE_DIALECT = SqlDialect("sqlite", "?", _ddl_sqlite, _upsert_sqlite)
 
 
+def _as_executable(conn: Any) -> Any:
+    """Adapt a raw DB-API connection so ``.execute()`` is available on it.
+
+    sqlite3 and psycopg(v3) connections expose ``execute``; psycopg2, pymysql
+    and MySQLdb only expose cursors (and pymysql's cursor.execute returns an
+    int, not the cursor) — normalize all of them here so direct construction
+    with a raw corporate-DB connection just works.
+    """
+    if hasattr(conn, "execute"):
+        return conn
+
+    class _Executable:
+        def __init__(self, raw: Any):
+            self._raw = raw
+            self._cursor = raw.cursor()
+
+        def execute(self, sql: str, params: Optional[list] = None) -> Any:
+            self._cursor.execute(sql, params or [])
+            return self._cursor  # pymysql returns an int; normalize
+
+        def commit(self) -> None:
+            self._raw.commit()
+
+        def rollback(self) -> None:
+            self._raw.rollback()
+
+        def close(self) -> None:
+            try:
+                self._cursor.close()
+            finally:
+                self._raw.close()
+
+    return _Executable(conn)
+
+
 class SqlContextStore(BaseContextStore):
     """Portable SQL backend over any DB-API 2.0 connection.
 
@@ -172,7 +207,7 @@ class SqlContextStore(BaseContextStore):
         self.content_dir = content_dir
         if content_dir:
             os.makedirs(content_dir, exist_ok=True)
-        self.conn = connect()
+        self.conn = _as_executable(connect())
         if init_schema:
             self.init_schema()
 

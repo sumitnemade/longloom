@@ -241,33 +241,5 @@ def _sql_connect_factory(url: str, kind: str) -> Callable[[], Any]:
 
 
 def _as_executable(conn: Any) -> Any:
-    """Adapt a raw DB-API connection so ``.execute()`` is available on it.
-
-    sqlite3 and psycopg(v3) connections expose ``execute``; psycopg2, pymysql
-    and SQLAlchemy raw connections only expose cursors — wrap those uniformly.
-    """
-    if hasattr(conn, "execute"):
-        return conn
-
-    class _Executable:
-        def __init__(self, raw: Any):
-            self._raw = raw
-            self._cursor = raw.cursor()
-
-        def execute(self, sql: str, params: Optional[list] = None) -> Any:
-            self._cursor.execute(sql, params or [])
-            return self._cursor  # pymysql returns an int; normalize to cursor
-
-        def commit(self) -> None:
-            self._raw.commit()
-
-        def rollback(self) -> None:
-            self._raw.rollback()
-
-        def close(self) -> None:
-            try:
-                self._cursor.close()
-            finally:
-                self._raw.close()
-
-    return _Executable(conn)
+    from .stores.sql import _as_executable as _adapt
+    return _adapt(conn)

@@ -31,6 +31,7 @@ key/server isn't available — so the whole suite is always safe to run.
 | 15 | [OpenAI × ALL databases](15_openai_all_databases.py) | **real OpenAI** (gpt-4o-mini, low-context config) | **every** store | `OPENAI_API_KEY` (+ servers) | ✅ runs |
 | 16 | [unstructured no-loss](16_unstructured_no_loss.py) | **real LLM** (NVIDIA or OpenAI) | SQLite | either API key | ✅ runs (100% preservation) |
 | 17 | [embed in existing database](17_embed_existing_database.py) | demo LLM | **your** table/columns | nothing (SQLite) | ✅ runs |
+| 18 | [enterprise gateway + existing DB](18_enterprise_gateway.py) | **real LLM** via callable | existing Postgres + tenant namespace | API key + a reachable DB | ✅ runs |
 
 
 Example 16 feeds a messy document (logs, JSON, email thread, ASCII table,
