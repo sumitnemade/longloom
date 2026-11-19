@@ -18,13 +18,41 @@ from typing import Callable, Optional, Union
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage
 
-__all__ = ["LLMLike", "LLMAdapter", "init_llm", "DEFAULT_NVIDIA_MODEL"]
+__all__ = ["LLMLike", "LLMAdapter", "RateLimitError", "init_llm",
+           "DEFAULT_NVIDIA_MODEL"]
 
 logger = logging.getLogger("longloom.llm")
 
 #: Upper bound for any single retry sleep (enterprise runs must surface
 #: persistent failures, not hang for minutes between attempts).
 MAX_RETRY_SLEEP = 120.0
+
+#: Upper bound for a single rate-limit backoff sleep. Quota windows are
+#: commonly 1-15 minutes, so the rate-limit budget is deliberately longer
+#: than the generic transient-failure budget above.
+MAX_RATE_LIMIT_SLEEP = 900.0
+
+
+class RateLimitError(Exception):
+    """Signal a provider rate limit (HTTP 429 / quota window).
+
+    LangChain provider errors that carry a ``Retry-After`` header are
+    honored automatically; plain callables and HTTP bridges should raise
+    this class so :class:`LLMAdapter` can apply the dedicated rate-limit
+    backoff budget instead of the short generic one. Wrapping code::
+
+        try:
+            r = requests.post(endpoint, json={"prompt": prompt})
+        ...
+        if r.status_code == 429:
+            raise RateLimitError("provider quota exceeded")
+
+    Rate-limit retries draw from their own attempt budget
+    (``rate_limit_attempts``, default 8) with a longer base backoff
+    (``rate_limit_backoff``, default 30s) and ceiling
+    (``rate_limit_max_sleep``, default 900s) — so a sustained quota window
+    no longer kills a multi-hour run after ~4 minutes of generic retries.
+    """
 
 LLMLike = Union[BaseChatModel, Callable[[str], str]]
 
@@ -44,7 +72,10 @@ class LLMAdapter:
     """
 
     def __init__(self, llm: LLMLike, retry_attempts: int = 4, retry_backoff: float = 3.0,
-                 min_interval: float = 0.0, jitter: bool = True):
+                 min_interval: float = 0.0, jitter: bool = True,
+                 rate_limit_attempts: int = 8, rate_limit_backoff: float = 30.0,
+                 max_retry_sleep: float = MAX_RETRY_SLEEP,
+                 rate_limit_max_sleep: float = MAX_RATE_LIMIT_SLEEP):
         if isinstance(llm, BaseChatModel):
             self._model: Optional[BaseChatModel] = llm
             self._fn: Optional[Callable[[str], str]] = None
@@ -59,6 +90,10 @@ class LLMAdapter:
             )
         self.retry_attempts = max(0, retry_attempts)
         self.retry_backoff = max(0.0, retry_backoff)
+        self.rate_limit_attempts = max(0, rate_limit_attempts)
+        self.rate_limit_backoff = max(0.0, rate_limit_backoff)
+        self.max_retry_sleep = max(0.0, max_retry_sleep)
+        self.rate_limit_max_sleep = max(0.0, rate_limit_max_sleep)
         self.min_interval = max(0.0, min_interval)
         self.jitter = jitter            # decorrelates parallel workers' retries
         self._last_call = 0.0
@@ -75,8 +110,7 @@ class LLMAdapter:
             return {k: tu.get(k) for k in ("prompt_tokens", "completion_tokens", "total_tokens")}
         return None
 
-    @staticmethod
-    def _retry_after(exc: Exception) -> Optional[float]:
+    def _retry_after(self, exc: Exception) -> Optional[float]:
         """Honor a provider's Retry-After header when the exception carries a
         response (requests/httpx-based errors do)."""
         seen = set()
@@ -89,7 +123,7 @@ class LLMAdapter:
                 raw = headers.get("retry-after") or headers.get("Retry-After")
                 if raw:
                     try:
-                        return min(float(raw), MAX_RETRY_SLEEP)
+                        return min(float(raw), self.max_retry_sleep)
                     except ValueError:
                         return None
             cur = cur.__cause__ or cur.__context__
@@ -118,36 +152,60 @@ class LLMAdapter:
                     time.sleep(wait)
                 self._last_call = time.time()
         last_exc: Optional[Exception] = None
-        for attempt in range(self.retry_attempts + 1):
+        reg_attempt = 0      # generic transient failures
+        rl_attempt = 0       # rate-limit budget (separate, longer)
+        attempt_no = 0       # meta counter across both budgets
+        while True:
             start = time.time()
             try:
                 text, meta = self._once(prompt)
                 with self._lock:
                     self._last_call = time.time()
-                meta.update({"backend": self.backend, "attempt": attempt,
+                meta.update({"backend": self.backend, "attempt": attempt_no,
                              "duration_ms": int((time.time() - start) * 1000)})
                 logger.debug("LLM call ok (backend=%s, attempt=%d, duration_ms=%d)",
-                             self.backend, attempt, meta["duration_ms"])
+                             self.backend, attempt_no, meta["duration_ms"])
                 return text, meta
+            except ValueError as exc:  # deterministic input errors: no retry
+                raise
+            except RateLimitError as exc:
+                last_exc = exc
+                with self._lock:
+                    self._last_call = time.time()
+                if rl_attempt >= self.rate_limit_attempts:
+                    break
+                base = self.rate_limit_backoff * (2 ** rl_attempt)
+                if self.jitter:
+                    base *= 1.0 + random.uniform(0, 0.25)
+                retry_after = self._retry_after(exc)
+                delay = min(max(base, retry_after or 0.0), self.rate_limit_max_sleep)
+                rl_attempt += 1
+                attempt_no += 1
+                logger.warning(
+                    "LLM rate limited (attempt %d/%d, backend=%s); backing off "
+                    "for %.1fs: %s", attempt_no, self.rate_limit_attempts + 1,
+                    self.backend, delay, type(exc).__name__)
+                time.sleep(delay)
             except Exception as exc:  # transient API failures included
                 last_exc = exc
                 with self._lock:
                     self._last_call = time.time()
-                if isinstance(exc, ValueError):
-                    raise  # deterministic input errors: retrying is pointless
-                if attempt < self.retry_attempts:
-                    base = self.retry_backoff * (2 ** attempt)
-                    if self.jitter:  # decorrelate parallel workers (thundering herd)
-                        base *= 1.0 + random.uniform(0, 0.25)
-                    retry_after = self._retry_after(exc)
-                    delay = min(max(base, retry_after or 0.0), MAX_RETRY_SLEEP)
-                    logger.warning(
-                        "LLM call failed (attempt %d/%d, backend=%s); retrying in %.1fs: %s",
-                        attempt + 1, self.retry_attempts + 1, self.backend, delay,
-                        type(exc).__name__)
-                    time.sleep(delay)
-        logger.error("LLM call failed after %d attempts (backend=%s): %s",
-                     self.retry_attempts + 1, self.backend, type(last_exc).__name__)
+                if reg_attempt >= self.retry_attempts:
+                    break
+                base = self.retry_backoff * (2 ** reg_attempt)
+                if self.jitter:  # decorrelate parallel workers (thundering herd)
+                    base *= 1.0 + random.uniform(0, 0.25)
+                retry_after = self._retry_after(exc)
+                delay = min(max(base, retry_after or 0.0), self.max_retry_sleep)
+                reg_attempt += 1
+                attempt_no += 1
+                logger.warning(
+                    "LLM call failed (attempt %d/%d, backend=%s); retrying in %.1fs: %s",
+                    attempt_no, self.retry_attempts + 1, self.backend, delay,
+                    type(exc).__name__)
+                time.sleep(delay)
+        logger.error("LLM call failed (backend=%s): %s",
+                     self.backend, type(last_exc).__name__)
         assert last_exc is not None
         raise last_exc
 

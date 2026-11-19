@@ -25,13 +25,15 @@ Parallelism, resume, observability and hygiene::
 from __future__ import annotations
 
 import asyncio
+import datetime
 import logging
+import re
 import uuid
 from typing import Any, Callable, Dict, List, Optional
 
 from .chunks import ContextChunk
 from .graph import MapReduceState, build_graph
-from .llm import LLMAdapter, LLMLike
+from .llm import LLMAdapter, LLMLike, RateLimitError
 from .prompts import (DEFAULT_PROMPTS, VERBATIM_MAP_PROMPT, PromptTemplates,
                       render_prompt)
 
@@ -40,7 +42,49 @@ from .stores.base import BaseContextStore
 from .stores.memory import InMemoryContextStore
 from .tokens import TokenCounter
 
-__all__ = ["MapReduceProcessor"]
+__all__ = ["MapReduceProcessor", "RateLimitError"]
+
+# A source line is treated as fact-bearing when it carries a digit or a
+# currency/percent symbol. This mirrors what the verbatim map prompt asks
+# the model to copy ("numbers, ... money amounts, ... percentages"), so the
+# source-anchored audit can restore exactly what the prompt demands.
+_SOURCE_FACT_RE = re.compile(r"[\d\u20b9\u20ac\u00a3%]")
+
+# Numeric figures for the summarization audit: comma-grouped numbers,
+# decimals, or runs of 4+ digits (amounts, totals, years). Short numbers
+# (page numbers, small counts) are too noisy to be useful signals.
+_FIGURE_RE = re.compile(r"\d+\.\d+|\d[\d,]{2,}|\d{4,}")
+
+# Prefixes stripped before two lines are compared for identity. Real merge
+# models do not always preserve the bullet: table rows may come back raw,
+# numbered items may lose their index — the comparison must be prefix-blind
+# or those lines are invisible to coverage counting (measured in the
+# unstructured-BRD validation: 15 lines present in the merge output were
+# missed by bullet-only matching).
+_ITEM_PREFIXES = ("- ", "* ", "\u2022 ", "> ", "| ")
+
+
+def _now_iso() -> str:
+    """Event timestamp, same format as graph.emit."""
+    return datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+
+def _normalize_item(line: str) -> str:
+    """Canonical form of an extracted item: strip list/table/quote prefixes
+    and collapse whitespace, so '- FACT-1', '| FACT-1 |', 'FACT-1' match."""
+    ln = line.strip()
+    changed = True
+    while changed and ln:
+        changed = False
+        for p in _ITEM_PREFIXES:
+            if ln.startswith(p):
+                ln = ln[len(p):].strip()
+                changed = True
+        m = re.match(r"^\d{1,3}[.)]\s+", ln)   # '1. ', '12) '
+        if m:
+            ln = ln[m.end():].strip()
+            changed = True
+    return re.sub(r"\s+", " ", ln)
 
 
 class MapReduceProcessor:
@@ -62,6 +106,8 @@ class MapReduceProcessor:
         detect_conflicts: bool = False,
         verify_coverage: Optional[bool] = None,
         coverage_keys: Optional[Callable[[str], List[str]]] = None,
+        source_audit: Optional[bool] = None,
+        numeric_audit: Optional[bool] = None,
     ):
         """Create a processor.
 
@@ -73,13 +119,43 @@ class MapReduceProcessor:
         model can silently drop lines even when the prompt forbids it. With
         custom prompts, pass ``coverage_keys`` (a callable extracting stable
         identifiers from any text) for report-only checking.
+
+        ``source_audit``: the map phase itself can under-capture on
+        unstructured input (measured: table rows 36%, action-log lines 48%
+        dropped vs 2% for bullets) — and the map-union diff above cannot see
+        what map never extracted. When enabled (default for the verbatim
+        preset), the final result is additionally diffed against the SOURCE
+        document's fact-bearing lines (lines containing a digit or currency
+        symbol); missing lines are appended verbatim, deterministically, at
+        zero LLM cost. ``result["source_audit"]`` reports the accounting.
+        Pass ``False`` to disable, or ``True`` to force report-only checking
+        for non-verbatim prompts. PII scrubbers are honored (the source is
+        scrubbed before diffing).
+
+        ``numeric_audit``: report-only check that every multi-digit figure
+        cited in the final result exists in the source. Figures in the final
+        result that the source does not contain are flagged in
+        ``result["numeric_audit"]`` and ``result["warnings"]`` — measured
+        failure mode: a real model reported a document total 15-38% off with
+        no signal. Aggregates computed by the model (legitimate sums) will
+        also be flagged, so treat this as a verification hint, not an error.
+        On by default (zero cost, regex only); pass ``False`` to disable.
         """
         self.llm = llm if isinstance(llm, LLMAdapter) else LLMAdapter(llm)
         self.store = store or InMemoryContextStore()
         self.prompts = prompts or DEFAULT_PROMPTS
         # A map result larger than the merge budget can never be combined —
-        # keep chunk inputs at most half the context window.
-        self.max_chunk_tokens = min(max_chunk_tokens, max(1, max_context_tokens // 2))
+        # keep chunk inputs at most half the context window. Surface the
+        # clamp: silent halving made users configure 2x more (and pricier)
+        # LLM calls than they intended.
+        effective_chunk = min(max_chunk_tokens, max(1, max_context_tokens // 2))
+        if effective_chunk != max_chunk_tokens:
+            logger.warning(
+                "max_chunk_tokens=%d clamped to %d (half of max_context_tokens=%d): "
+                "chunks larger than half the merge budget can never be combined. "
+                "Raise max_context_tokens if you intended larger chunks.",
+                max_chunk_tokens, effective_chunk, max_context_tokens)
+        self.max_chunk_tokens = effective_chunk
         self.max_context_tokens = max_context_tokens
         self.max_repair_attempts = max_repair_attempts
         self.task_focus = task_focus
@@ -89,6 +165,8 @@ class MapReduceProcessor:
         self.detect_conflicts = detect_conflicts
         self.verify_coverage = verify_coverage
         self.coverage_keys = coverage_keys
+        self.source_audit = source_audit
+        self.numeric_audit = numeric_audit
         self._counter: TokenCounter = token_counter or self.store.counter
         self.graph = build_graph(
             llm=self.llm,
@@ -206,7 +284,91 @@ class MapReduceProcessor:
                 try:  # observability must never kill a run
                     self.on_event({"event": "coverage_verified",
                                    "session_id": session_id,
+                                   "ts": _now_iso(),
                                    **out["coverage"]})
+                except Exception:
+                    pass
+
+        # ------------------------------------------------------------------
+        # Source-anchored audit. Coverage above can only restore lines the
+        # MAP phase extracted — but on unstructured input the map model
+        # itself under-captures (measured: pipe-table rows 36% and
+        # action-log lines 48% dropped vs 2% for bullets). The caller holds
+        # the source document, so diff the final result against the source's
+        # fact-bearing lines: anything still missing is appended verbatim
+        # (deterministic, zero LLM cost) for the verbatim preset, or
+        # reported for other prompts. PII scrubbers are honored.
+        sa_enabled = (self.source_audit if self.source_audit is not None
+                      else verbatim_preset)
+        if sa_enabled and content:
+            src = self.scrubber(content) if self.scrubber else content
+            src_items = {_normalize_item(ln) for ln in src.splitlines()
+                         if _SOURCE_FACT_RE.search(ln) and ln.strip()}
+            src_items.discard("")
+            final_norm = {_normalize_item(ln) for ln in out["final_result"].splitlines()}
+            sa_missing = sorted(src_items - final_norm)
+            out["source_audit"] = {
+                "source_fact_lines": len(src_items),
+                "missing": len(sa_missing),
+                "appended": 0,
+                "method": None,
+            }
+            if sa_missing and verbatim_preset:
+                out["final_result"] = (out["final_result"].rstrip()
+                                       + "\n"
+                                       + "\n".join(f"- {ln}" for ln in sa_missing))
+                out["source_audit"]["appended"] = len(sa_missing)
+                out["source_audit"]["method"] = "verbatim_append"
+                sa_missing = []
+            elif sa_missing:
+                out["source_audit"]["method"] = "report_only"
+                warnings.append(
+                    f"source audit: {len(sa_missing)} source fact-bearing "
+                    "line(s) absent from final_result; verbatim append is "
+                    "only available for the verbatim extraction preset.")
+            if self.on_event:
+                try:
+                    self.on_event({"event": "source_audit_completed",
+                                   "session_id": session_id,
+                                   "ts": _now_iso(),
+                                   **out["source_audit"]})
+                except Exception:
+                    pass
+
+        # ------------------------------------------------------------------
+        # Numeric-consistency audit (report-only). A real model can report
+        # an aggregate 15-38% off the source with no signal; any multi-digit
+        # figure in the final result that the source does not contain is a
+        # computed aggregate or a hallucination — either way the reader must
+        # be told. Regex only, no LLM cost.
+        if (self.numeric_audit if self.numeric_audit is not None else True) and content:
+            def _fig_norm(s: str) -> str:
+                return s.replace(",", "")
+
+            src_figs = {_fig_norm(m) for m in _FIGURE_RE.findall(content)}
+            final_figs = {_fig_norm(m) for m in _FIGURE_RE.findall(out["final_result"])}
+            src_text_nocomma = content.replace(",", "")
+            cited = {f for f in final_figs if f in src_text_nocomma}
+            unverifiable = final_figs - cited
+            out["numeric_audit"] = {
+                "source_figures": len(src_figs),
+                "cited": len(cited),
+                "unverifiable_count": len(unverifiable),
+                "unverifiable": sorted(unverifiable)[:8],
+            }
+            if unverifiable:
+                examples = ", ".join(sorted(unverifiable)[:8])
+                warnings.append(
+                    f"numeric audit: {len(unverifiable)} figure(s) in "
+                    f"final_result do not appear in the source ({examples}) — "
+                    "computed aggregates or hallucinations; verify "
+                    "independently.")
+            if self.on_event:
+                try:
+                    self.on_event({"event": "numeric_audit_completed",
+                                   "session_id": session_id,
+                                   "ts": _now_iso(),
+                                   **out["numeric_audit"]})
                 except Exception:
                     pass
 
@@ -239,10 +401,16 @@ class MapReduceProcessor:
 
     @staticmethod
     def _default_coverage_keys(text: str) -> List[str]:
-        """Extract list items ('- ...' lines, bullet removed) from LLM output."""
-        return [ln.strip()[1:].strip()
-                for ln in text.splitlines()
-                if ln.strip().startswith("- ")]
+        """Extract list items from LLM output, prefix-blind: bullets ('- ',
+        '* ', '•'), numbered items ('1. '), table pipes and quotes are
+        stripped, so '- FACT-1', '| FACT-1 |' and 'FACT-1' are the same item
+        (a real merge model does not always preserve the bullet)."""
+        out = []
+        for ln in text.splitlines():
+            item = _normalize_item(ln)
+            if item:
+                out.append(item)
+        return out
 
     # -- store passthroughs --------------------------------------------
 

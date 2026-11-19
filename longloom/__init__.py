@@ -19,7 +19,7 @@ from .chunks import ContextChunk, content_hash, split_text
 from .factory import SUPPORTED_SCHEMES, create_store
 from .stores.naming import FieldMap
 from .graph import MapReduceState, build_graph
-from .llm import LLMAdapter, LLMLike, init_llm
+from .llm import LLMAdapter, LLMLike, RateLimitError, init_llm
 from .processor import MapReduceProcessor
 from .prompts import DEFAULT_PROMPTS, PromptTemplates, render_prompt
 from .stores import (
@@ -38,7 +38,7 @@ from .stores import (
 )
 from .tokens import EstimateCounter, TiktokenCounter, TokenCounter, default_counter
 
-__version__ = "1.3.0"
+__version__ = "1.4.0"
 
 __all__ = [
     # processor / graph
@@ -48,6 +48,7 @@ __all__ = [
     # llm
     "LLMAdapter",
     "LLMLike",
+    "RateLimitError",
     "init_llm",
     "NVIDIAChatModel",
     # stores

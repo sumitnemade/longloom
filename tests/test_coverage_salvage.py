@@ -108,8 +108,11 @@ def test_verbatim_salvage_restores_dropped_lines():
 
 
 def test_coverage_disabled_keeps_previous_behaviour():
+    # source_audit is an independent safety net (default on for the verbatim
+    # preset); it is disabled here so this test pins the legacy behaviour of
+    # verify_coverage=False: no coverage metadata, merge drops stay silent.
     out = run(DroppingMergeLLM(), PromptTemplates.for_extraction(),
-              verify_coverage=False)
+              verify_coverage=False, source_audit=False)
     assert "coverage" not in out
     assert out["warnings"] == []
     final_ids = set(re.findall(r"FACT-\d{3}", out["final_result"]))

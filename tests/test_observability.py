@@ -36,7 +36,11 @@ def test_event_sequence_and_counts():
 
     names = [e["event"] for e in events]
     assert names[0] == "run_started"
-    assert names[-1] == "run_completed"
+    # post-run audit events (coverage/source/numeric) fire after the graph
+    # completes; the pipeline's own last event is run_completed
+    pipeline_names = [n for n in names if not n.endswith("_audit_completed")
+                      and n != "coverage_verified"]
+    assert pipeline_names[-1] == "run_completed"
     assert names.count("chunk_stored") == result["num_chunks"]
     assert names.count("map_completed") == result["num_chunks"]
     assert names.count("merge_completed") == 1

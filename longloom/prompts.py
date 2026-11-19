@@ -28,6 +28,11 @@ VERBATIM_MAP_PROMPT = (
     "URLs, hostnames, IP addresses, versions, dates, money amounts, "
     "key=value or key: value pairs, percentages, measurements, geographic names "
     "(states, cities, mandis, districts), and organization/person names.\n"
+    "Fact-bearing lines come in many shapes — copy them ALL: bullet list items, "
+    "pipe-delimited table rows (lines containing '|'), action/decision/meeting-log "
+    "entries (lines starting with 'Action', 'Decision', 'Minutes'), and full prose "
+    "sentences that contain a date, amount, percentage or quantity. A line does "
+    "not need to look like a bullet to be a fact.\n"
     "If a sentence wraps onto the next line, copy the continuation too so the "
     "fact stays complete.\n"
     "Rules:\n"
@@ -42,7 +47,9 @@ VERBATIM_MERGE_PROMPT = (
     "Rules:\n"
     "- Remove EXACT duplicate lines only (same text after trimming).\n"
     "- Keep every unique line, copied exactly. Do NOT paraphrase, merge, "
-    "reformat, or drop any line. Do NOT add commentary.\n\n"
+    "reformat, or drop any line. Do NOT add commentary.\n"
+    "- Before returning, verify that every unique input line appears in your "
+    "output; if any are missing, append them verbatim.\n\n"
     "CHUNK RESULTS:\n{chunk_results}"
 )
 VERBATIM_REPAIR_PROMPT = (
@@ -70,7 +77,9 @@ class PromptTemplates:
         "CHUNK RESULTS:\n{chunk_results}\n\n"
         "Combine these into a single coherent result.\n"
         "Focus on: {task_focus}\n"
-        "Remove redundancy while preserving all key information."
+        "Remove redundancy while preserving all key information.\n"
+        "Before returning, verify that every key fact (figure, date, "
+        "identifier) from the chunk results is present in your output."
     )
     repair: str = (
         "The previous merge result was too long ({current_tokens} tokens) for "
