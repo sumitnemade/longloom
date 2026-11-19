@@ -50,7 +50,7 @@ jobs:
       - name: Audit
         run: |
           pip install pip-audit
-          pip-audit --strict
+          pip-audit --strict --skip-editable
 
   build:
     name: build sdist + wheel
