@@ -32,12 +32,13 @@ from typing import Any, Callable, Dict, List, Optional
 from .chunks import ContextChunk
 from .graph import MapReduceState, build_graph
 from .llm import LLMAdapter, LLMLike
-from .prompts import DEFAULT_PROMPTS, PromptTemplates, render_prompt
+from .prompts import (DEFAULT_PROMPTS, VERBATIM_MAP_PROMPT, PromptTemplates,
+                      render_prompt)
 
 logger = logging.getLogger("longloom.processor")
 from .stores.base import BaseContextStore
 from .stores.memory import InMemoryContextStore
-from .tokens import TokenCounter, default_counter
+from .tokens import TokenCounter
 
 __all__ = ["MapReduceProcessor"]
 
@@ -59,7 +60,20 @@ class MapReduceProcessor:
         on_event: Optional[Callable[[Dict[str, Any]], None]] = None,
         scrubber: Optional[Callable[[str], str]] = None,
         detect_conflicts: bool = False,
+        verify_coverage: Optional[bool] = None,
+        coverage_keys: Optional[Callable[[str], List[str]]] = None,
     ):
+        """Create a processor.
+
+        ``verify_coverage``: when enabled, the final result is checked against
+        the union of all map outputs, and ``result["coverage"]`` reports how
+        many map-extracted items are missing. With the verbatim extraction
+        preset (default when ``None``), missing lines are restored verbatim —
+        deterministically, with no extra LLM calls — because a real merge
+        model can silently drop lines even when the prompt forbids it. With
+        custom prompts, pass ``coverage_keys`` (a callable extracting stable
+        identifiers from any text) for report-only checking.
+        """
         self.llm = llm if isinstance(llm, LLMAdapter) else LLMAdapter(llm)
         self.store = store or InMemoryContextStore()
         self.prompts = prompts or DEFAULT_PROMPTS
@@ -73,6 +87,8 @@ class MapReduceProcessor:
         self.on_event = on_event
         self.scrubber = scrubber
         self.detect_conflicts = detect_conflicts
+        self.verify_coverage = verify_coverage
+        self.coverage_keys = coverage_keys
         self._counter: TokenCounter = token_counter or self.store.counter
         self.graph = build_graph(
             llm=self.llm,
@@ -144,6 +160,67 @@ class MapReduceProcessor:
             "processing_log": result.get("processing_log", []),
             "sources": sources,
         }
+
+        # ------------------------------------------------------------------
+        # Coverage verification & salvage. The map phase is faithful (verbatim
+        # extraction returns every item), but a real merge model can silently
+        # DROP lines even when the prompt forbids it — and the loss compounds
+        # across hierarchical merge passes. Verify the final result against
+        # the union of map outputs; recover missing verbatim lines
+        # deterministically (no LLM cost) when the extraction preset produced
+        # them; otherwise report the gap in `warnings`.
+        warnings: List[str] = []
+        map_results = result.get("map_results", [])
+        verbatim_preset = self.prompts.map == VERBATIM_MAP_PROMPT
+        enabled = (self.verify_coverage if self.verify_coverage is not None
+                   else verbatim_preset)
+        if enabled and map_results:
+            extract = self.coverage_keys or self._default_coverage_keys
+            map_items: set = set()
+            for mr in map_results:
+                map_items.update(extract(mr))
+            final_items = set(extract(out["final_result"]))
+            missing = sorted(map_items - final_items)
+            out["coverage"] = {
+                "expected": len(map_items),
+                "found": len(map_items & final_items),
+                "missing": len(missing),
+                "salvaged": 0,
+                "method": None,
+            }
+            if missing and verbatim_preset:
+                out["final_result"] = (out["final_result"].rstrip()
+                                       + "\n"
+                                       + "\n".join(f"- {ln}" for ln in missing))
+                out["coverage"]["salvaged"] = len(missing)
+                out["coverage"]["method"] = "verbatim_append"
+                missing = []
+            elif missing:
+                out["coverage"]["method"] = "report_only"
+                warnings.append(
+                    f"coverage check: {len(missing)} map-extracted item(s) "
+                    "missing from final_result; no salvage available for "
+                    "non-verbatim prompts (pass coverage_keys and inspect "
+                    "result['coverage']).")
+            if self.on_event:
+                try:  # observability must never kill a run
+                    self.on_event({"event": "coverage_verified",
+                                   "session_id": session_id,
+                                   **out["coverage"]})
+                except Exception:
+                    pass
+
+        # Repair is best-effort, not a guarantee: when the result still
+        # exceeds the context budget after every attempt, say so explicitly
+        # instead of returning an oversized result silently.
+        out["merge_token_count"] = self._counter(out["final_result"])
+        if out["merge_token_count"] > self.max_context_tokens:
+            warnings.append(
+                f"final_result is {out['merge_token_count']} tokens, above "
+                f"the {self.max_context_tokens}-token context budget after "
+                f"{out['repair_attempts']} repair attempt(s).")
+        out["warnings"] = warnings
+
         if self.detect_conflicts:
             prompt = render_prompt(DEFAULT_PROMPTS.conflicts, {
                 "final_result": out["final_result"]})
@@ -159,6 +236,13 @@ class MapReduceProcessor:
         """Async wrapper — the event loop stays free while the (thread-offloaded)
         pipeline runs. Same signature and result as :meth:`process`."""
         return await asyncio.to_thread(self.process, *args, **kwargs)
+
+    @staticmethod
+    def _default_coverage_keys(text: str) -> List[str]:
+        """Extract list items ('- ...' lines, bullet removed) from LLM output."""
+        return [ln.strip()[1:].strip()
+                for ln in text.splitlines()
+                if ln.strip().startswith("- ")]
 
     # -- store passthroughs --------------------------------------------
 

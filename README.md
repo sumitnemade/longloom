@@ -234,6 +234,7 @@ identical session IDs. See `examples/17_embed_existing_database.py`.
 | **Observability** | `on_event=` emits structured events (per chunk, per LLM call with token usage, per repair) — forward to OTel/Datadog as you like. |
 | **Retention & PII scrubbing** | `scrubber=` rewrites content before anything is stored; `delete_sessions_older_than(days)` sweeps old sessions across every backend. |
 | **Conflict detection** | `detect_conflicts=True` runs an advisory pass that flags contradictory values side by side. |
+| **Coverage verification & salvage** | The final result is verified against the union of map outputs; lines a merge model silently dropped are restored verbatim (no extra LLM calls) for the extraction preset, and `result["coverage"]` reports the accounting. |
 | **Typed & versioned** | `py.typed`, semantic versioning, CHANGELOG, per-provider extras. |
 
 ### Honest limits

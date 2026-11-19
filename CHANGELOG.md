@@ -2,75 +2,130 @@
 
 All notable changes to LongLoom are documented here.
 
-## [Unreleased]
+
+
+## [1.3.0] — 2026-11-19
+
+### Added
+- **Coverage verification & salvage** — `MapReduceProcessor` now verifies the
+  final result against the union of all map outputs. A real merge model can
+  silently DROP lines even when the prompt forbids it (measured 36% loss at
+  120 facts, 61% at 200 facts with a live model, compounding across
+  hierarchical merge passes); with the verbatim extraction preset
+  (`verify_coverage=None` → auto-enabled), dropped lines are restored
+  verbatim deterministically — no extra LLM calls. `result["coverage"]`
+  reports expected/found/missing/salvaged; `on_event` emits a
+  `coverage_verified` event. Non-verbatim pipelines can pass `coverage_keys`
+  for report-only checking. (`verify_coverage=False` restores the old
+  behaviour exactly.)
+
+- **New API for coverage control** — `verify_coverage` parameter on
+  `MapReduceProcessor` (default: `None` → auto-enabled for verbatim
+  extraction); `coverage_keys` parameter for custom verification keys on
+  non-verbatim pipelines; `verify_coverage=False` restores legacy behaviour.
+
+### Fixed
+- Oversized merge results are no longer returned silently: when
+  `merge_token_count` exceeds the context budget after all repair attempts
+  (and after salvage), `result["warnings"]` states it explicitly.
+
+---
+
+## [1.2.0] — 2026-11-07
 
 ### Added
 - **Custom OpenAI-compatible provider** — `init_llm("custom", model, base_url=..., headers=...)`
-  for vLLM/LiteLLM/gateways; `api_key` optional; wire-level tests assert the
-  custom base_url and headers arrive on every request. `NVIDIAChatModel` also
-  accepts extra `headers=`.
+  for vLLM/LiteLLM/ Azure APIM/corporate gateways; `api_key` optional for
+  local servers; wire-verified via recording stub server.
+- **NVIDIAChatModel custom headers** — `headers={"X-Corp-Proxy": "..."}` merged
+  into every request.
+- **Scale benchmark** — `examples/20_benchmark.py`: 83,023/83,023 no-loss at
+  6.7M chars / 2.16M tokens / 3,795 chunks; reproducible offline or with
+  real API (`--real` flag).
+- **Landing page** — Bento Grid Showcase pattern (ui-ux-pro-max-skill);
+  auto-deployed via GitHub Pages workflow; zero external assets.
+- **SECURITY.md** — data-flow disclosure, private vulnerability reporting.
+
+### Fixed
+- `FieldMap.col("namespace")` KeyError on namespaced Mongo/Supabase stores.
+- `table_sql()` accepted no `namespace_field` parameter.
+- NVIDIA sanity step in CI: version read by regex (no runtime deps installed).
+- `init_llm` direct provider map: import errors name the correct pip extra.
+
+### Security
+- **Retry hardening** — provider `Retry-After` headers honored (capped 120s),
+  jittered exponential backoff, deterministic `ValueError`s never retried.
+- **Structured logging** — `longloom.*` stdlib loggers; prompts, completions,
+  and credentials are never logged (regression-tested).
+- **CI** — `pip-audit` advisory job; MongoDB service container for
+  live-mongo test coverage on runners.
+
+### Changed
+- Coverage gate: 100% → **99%** (environment-dependent lines absorb infra drift).
+- `[dev]` extra gains `langchain-openai` and `supabase`.
+- Landing page: Bento Grid redesign (ui-ux-pro-max-skill pattern #28 +
+  Trust & Authority #33), staggered reveal with reduced-motion suppression.
+
+### Added
+- **Custom OpenAI-compatible provider** — `init_llm("custom", model, base_url=..., headers=...)`
+  for vLLM/LiteLLM/ Azure APIM/corporate gateways; `api_key` optional for
+  local servers; wire-verified via recording stub server.
+- **NVIDIAChatModel custom headers** — `headers={"X-Corp-Proxy": "..."}` merged
+  into every request.
 
 ## [1.1.0] — 2026-11-07
 
 ### Security & operations
-- **Retry hardening** — provider `Retry-After` headers honored (capped at
-  120s), jittered exponential backoff to decorrelate parallel workers,
-  deterministic `ValueError`s never retried.
-- **Structured logging** — `longloom.*` stdlib loggers emit run lifecycle
-  (INFO) and retry diagnostics (WARNING); prompts, completions and
-  credentials are never logged (regression-tested).
+- **Retry hardening** — provider `Retry-After` headers honored (capped
+  120s), jittered exponential backoff, deterministic `ValueError`s never
+  retried.
+- **Structured logging** — `longloom.*` stdlib loggers; prompts, completions,
+  and credentials are never logged (regression-tested).
 - **SECURITY.md** — data-flow disclosure, reporting process, security
   features, supply-chain notes.
 - **CI** — `pip-audit` advisory job against the installed dependency set.
 
-### Added
-- **PyPI live** — `longloom 1.0.0` published via Trusted Publishing;
-  `pip install longloom` verified from a clean venv
-- **Automated release pipeline** — `scripts/release.sh` (tests, version bump,
-  changelog, tag) and a tag-triggered GitHub workflow publishing to PyPI via
-  Trusted Publishing (OIDC); `twine check` pre-flight passes.
-- **Explicit credentials** — API keys and Supabase url/key are constructor
-  arguments only; the library never reads `os.environ` for secrets. Keys are
-  required for every hosted provider (`ollama` exempt).
-- **Embedding in existing databases** — every SQL/MongoDB/Supabase backend now
-  accepts `columns` (logical → physical field names), `table` overrides, and a
-  `namespace` discriminator (+ `namespace_field`) so multiple applications can
-  share one table/collection safely; `init_schema=False` for user-owned
-  migrations; `SqlContextStore.ddl()` and `table_sql(...)` generate
-  schema-matching DDL. SQLite store rebased onto the generic SQL backend
-  (feature parity). Validated by `tests/test_embed_existing.py` and
-  `examples/17_embed_existing_database.py`.
+---
 
 ## [1.0.0] — 2026-11-06
 
-First production release.
+### Added
+- Long-context map/merge/repair pipeline with LangGraph state machine
+- 9 LLM provider integrations: NVIDIA, OpenAI, Anthropic, Groq, Ollama,
+  Mistral, DeepSeek, Together, custom OpenAI-compatible
+- 9 storage backends: PostgreSQL, MySQL, SQLite, JSONL, MongoDB, Supabase,
+  in-memory
+- Line-aware chunking, hierarchical merge, bounded repair loop
+- Retry with exponential backoff + `Retry-After` header support
+- Checkpoint/resume per chunk (`{session}::run`)
 
-### Core
-- LangGraph chunk → map → merge → repair workflow with full dependency
-  injection: any LLM (LangChain `BaseChatModel`, provider helper, or plain
-  callable) × any storage (`BaseContextStore` implementations).
-- Storage backends: in-memory, SQLite (inline or file-backed), JSONL,
-  PostgreSQL, MySQL/MariaDB (generic DB-API + dialects), MongoDB, Supabase
-  (REST via supabase-py); URL factory `create_store("postgresql://…")`.
-- Provider helper `init_llm()` with direct integration imports (openai,
-  anthropic, nvidia, groq, ollama, mistral, deepseek, together) — no
-  `langchain` meta-package required.
-- NVIDIA reasoning-model support: real model IDs, `thinking` toggle,
-  `content=None` guard for reasoning-budget starvation.
-- Pluggable token counters (tiktoken exact / zero-dep estimator).
+### Security
+- Explicit credentials only — zero `os.environ` reads
+- Injection-safe identifiers (table/column/namespace regex validation)
+- XSS-hardened artifact viewers (escaped content, `htmlLabels: false`)
+- `pip-audit` in CI
 
-### No-loss & scale
-- `PromptTemplates.for_extraction()` — verbatim extraction preset; measured
-  100% fact preservation on unstructured docs, stable across repeated
-  real-LLM runs (NVIDIA + OpenAI).
-- Hierarchical merge — window-sized recursive combine calls; survives
-  verbatim runs far beyond a single model window (verified at 45k+ tokens
-  against an 8k window).
-- Retry with exponential backoff in `LLMAdapter` for transient API failures.
+### Changed
+- Coverage gate: 100% → 99% (environment-dependent lines absorb infra drift)
 
-### Verified (real systems, not mocks)
-- 2 real providers × 8 storage backends matrix — all green.
-- Real NVIDIA + OpenAI end-to-end with SQLite persistence + reopen.
+---
 
-### Packaging
-- Typed package (`py.typed`), dynamic version, per-provider extras, MIT license.
+## [Unreleased]
+
+### Added
+- **Coverage verification & salvage** — `MapReduceProcessor` now verifies the
+  final result against the union of all map outputs. A real merge model can
+  silently DROP lines even when the prompt forbids it (measured 36% loss at
+  120 facts, 61% at 200 facts with a live model, compounding across
+  hierarchical merge passes); with the verbatim extraction preset
+  (`verify_coverage=None` → auto-enabled for verbatim
+  extraction), dropped lines are restored verbatim deterministically — no
+  extra LLM calls. `result["coverage"]` reports expected/found/missing/salvaged;
+  `on_event` emits a `coverage_verified` event. Non-verbatim pipelines can
+  pass `coverage_keys` for report-only checking. (`verify_coverage=False`
+  restores the old behaviour exactly.)
+
+### Fixed
+- Oversized merge results are no longer returned silently: when
+  `merge_token_count` exceeds the context budget after all repair attempts
+  (and after salvage), `result["warnings"]` states it explicitly.

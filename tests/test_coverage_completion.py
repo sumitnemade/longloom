@@ -38,7 +38,6 @@ from longloom import (
 )
 from longloom.chunks import split_text
 from longloom.llm import LLMAdapter
-from longloom.stores.memory import InMemoryContextStore as MemStore
 from longloom.tokens import EstimateCounter, TiktokenCounter, default_counter
 from fake_llm import KEY_CONCEPTS, PhaseAwareFakeChatModel, make_doc
 from store_contract import run_store_contract
