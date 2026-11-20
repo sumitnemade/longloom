@@ -29,6 +29,8 @@ A 128K-token model cannot read a 167K-token document. We measured what actually 
 
 ![What survives a document bigger than the context window](assets/fact_retention_benchmark.png)
 
+![LongLoom detecting a silent merge drop and restoring every line verbatim](assets/longloom_quickstart.gif)
+
 ## We tried to break our own no-loss claim
 
 Before asking you to trust "measured no-loss", we ran a hostile audit against our own library: planted-fact documents, a live LLM, byte-exact scoring (normalized line-identity against the source — not fuzzy similarity). The previous release, v1.2.0, failed it: the merge stage silently dropped **36% of 120** and **61% of 200** planted facts, and the map stage under-captured anything that didn't look like a bullet. Every failure below was fixed in **1.4.0** and re-measured on the published PyPI wheel:
